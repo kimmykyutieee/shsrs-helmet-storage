@@ -1,0 +1,11 @@
+{
+  "name": "shsrs",
+  "private": true,
+  "scripts": {
+    "start": "concurrently -k -n API,APP -c yellow,cyan \"npm --prefix server start\" \"npm --prefix app run web\"",
+    "setup": "npm install && npm --prefix server install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
