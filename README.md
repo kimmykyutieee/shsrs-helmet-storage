@@ -1,8 +1,8 @@
 # SHSRS — Helmet Reservation Storage System
 
 A full-stack app for reserving and unlocking helmet storage cabinets with QR codes.
-Riders book one of 12 cabinet slots, get a personal QR access pass, and scan it at the cabinet.
-Administrators manage slots, reservations, users and the access log.
+Riders book one of 12 cabinet slots, submit payment for Finance review, then receive a personal QR access pass after verification.
+Finance users review payments; administrators manage slots, reservations, users and the access log.
 
 **Stack:** React Native (Expo, runs on phone + browser) · Node.js / Express API · MySQL / MariaDB (XAMPP)
 
@@ -14,24 +14,31 @@ Administrators manage slots, reservations, users and the access log.
 - Register / log in (passwords hashed with bcrypt, JWT sessions)
 - Dashboard with next reservation, free slots today and recent cabinet activity
 - Reserve a slot by date and time (live availability, no double bookings)
+- Submit a PHP 25.00 payment with a receipt image for Finance review
 - Search, reschedule, cancel and export reservations as PDF
-- Unique QR access pass per reservation (download / share)
+- Unique QR access pass per reservation after payment verification (download / share)
 - Cabinet scanner (camera or manual ID) that toggles **Stored / Retrieved**
-- Profile: photo, name, email, password change, delete account
+- Profile: photo, name, email, phone, password change, delete account
 - Light / dark mode
+
+**Finance**
+- Separate role assigned by an administrator to an existing account
+- Review pending payment receipts, verify or reject payments, and view payment history
 
 **Administrators**
 - Slot maintenance (block / unblock slots)
 - View and cancel any reservation
-- Users list and full cabinet access log
+- Users list, Finance-role assignment and full cabinet access log
 - Export reservations to CSV
 
 **Business rules (enforced by the server)**
 - 12 slots; one booking per slot per date
 - Bookings must be in the future; blocked slots cannot be booked
+- QR access is denied until Finance verifies the PHP 25.00 payment
 - A QR scan unlocks a slot from **30 minutes before** the reserved time until the end of that day
 - The first account registered becomes the administrator
 - Passwords need at least 8 characters
+- Phone numbers are collected for future notifications; SMS delivery is not configured
 
 ---
 
@@ -39,12 +46,25 @@ Administrators manage slots, reservations, users and the access log.
 
 ```
 shsrs/
-├── App.js              # Whole app UI + logic (copied into app/ during setup)
-├── app/                # Expo project (created in step 3)
+├── App.js              # Compatibility re-export of the Expo app
+├── app/                # Expo project
+│   ├── App.js
+│   ├── app.json
+│   ├── assets/
+│   ├── components/     # Shared and role-specific UI components
+│   ├── navigation/     # Role-based navigators
+│   ├── screens/        # Authentication, role screens, home and profile
+│   │   ├── admin/
+│   │   ├── finance/
+│   │   └── rider/
+│   ├── services/       # API and domain services
+│   ├── shared/         # Hooks, constants and utilities
+│   └── styles/
 ├── server/
 │   ├── server.js       # Express API
 │   ├── package.json
 │   ├── schema.sql      # Database tables
+│   ├── migrations/     # Existing database migrations
 │   └── demo_data.sql   # Optional sample data
 ├── package.json        # One-command launcher (API + app together)
 ├── start.bat           # Double-click launcher for Windows
@@ -69,24 +89,17 @@ shsrs/
 3. Import `server/schema.sql` (creates the `shsrs` database and tables).
 4. *(Optional)* import `server/demo_data.sql` for sample users and reservations.
 
+For an existing SHSRS database, apply the migrations in order: `server/migrations/001_finance_payments.sql`, then `server/migrations/002_payment_receipt_only.sql`. They add Finance/payment support and make the legacy payment-method column optional without deleting existing rows. Existing reservations remain unconfirmed until a receipt is submitted and approved.
+
 ### 2. Install the server and launcher
 ```bash
 cd C:\Users\Admin\shsrs
 npm run setup
 ```
 
-### 3. Create the app project
+### 3. Install the app packages
 ```bash
-cd C:\Users\Admin\shsrs
-npx create-expo-app@latest app --template blank
-```
-Type `y` if asked and wait until it finishes.
-
-### 4. Install the app packages and add the code
-```bash
-cd app
-npx expo install react-dom react-native-web @expo/metro-runtime @react-native-async-storage/async-storage expo-image-picker expo-print expo-sharing expo-camera @react-native-community/datetimepicker react-native-svg react-native-qrcode-svg react-native-safe-area-context @expo/vector-icons
-copy /Y ..\App.js App.js
+npm install --prefix app
 ```
 
 ---
@@ -117,8 +130,15 @@ Without demo data, register in the app — the first account becomes the admin.
 ### Running on a phone (Expo Go)
 1. Phone and PC must be on the **same Wi-Fi**.
 2. Find your PC's IPv4 address with `ipconfig`.
-3. In `App.js`, set `PC_IP` to that address, copy it to `app/App.js`, and restart.
+3. In `app/src/constants/config.js`, set `PC_IP` to that address and restart.
 4. Scan the Expo QR code with Expo Go. Allow Node through Windows Firewall if asked.
+
+### Finance account
+1. Register a separate account normally, including a phone number.
+2. Log in as Admin and select **Make Finance** for that account in the Users list.
+3. Log in using that account to open the Finance dashboard.
+
+Students submit a receipt image with each reservation. Finance can approve or reject pending payments; only approved payments release the reservation QR code. SMS notifications are not sent because no SMS provider is configured.
 
 ---
 
@@ -144,12 +164,13 @@ Windows example: `set DB_PASS=mypassword` before `npm start`.
 
 | Table          | Purpose                                                        |
 |----------------|----------------------------------------------------------------|
-| `users`        | Accounts (bcrypt password hash, photo, `is_admin`)             |
+| `users`        | Accounts (bcrypt password hash, photo, phone, Admin and Finance roles) |
 | `slots`        | The 12 cabinet slots and their maintenance flag                |
-| `reservations` | Bookings; unique per (`slot_no`, `res_date`); `stored` flag    |
+| `reservations` | Bookings; unique per (`slot_no`, `res_date`); status and `stored` flag |
+| `payments`     | Student-submitted receipt image, status and processing history |
 | `access_log`   | Every Stored / Retrieved event                                 |
 
-Deleting a user cascades to their reservations; log entries are kept.
+Deleting a user cascades to their reservations and related payments; log entries are kept.
 
 ---
 
@@ -164,10 +185,18 @@ All routes except `register`, `login` and `health` need `Authorization: Bearer <
 | POST   | `/api/login`                       | Log in → token                       |
 | GET    | `/api/data`                        | Everything the app needs             |
 | POST   | `/api/reservations`                | Book a slot                          |
+| POST   | `/api/reservations/:id/payments`   | Submit payment and receipt           |
+| GET    | `/api/finance/payments`            | List pending payments *(Finance)*     |
+| GET    | `/api/finance/payments/:id/receipt`| View a pending receipt *(Finance)*    |
+| GET    | `/api/finance/payment-history`     | View processed payments *(Finance)*   |
+| POST   | `/api/finance/payments/:id/verify` | Verify a pending payment *(Finance)*  |
+| POST   | `/api/finance/payments/:id/reject` | Reject a pending payment *(Finance)*  |
+| PUT    | `/api/admin/users/:id/finance`     | Assign/remove Finance role *(admin)*  |
+| GET    | `/api/reservations/:id/qr`         | Get QR after verified payment        |
 | PUT    | `/api/reservations/:id`            | Reschedule (own)                     |
 | DELETE | `/api/reservations/:id`            | Cancel (own)                         |
 | POST   | `/api/scan`                        | Scan QR / ID → Stored / Retrieved    |
-| PUT    | `/api/me`                          | Update name and email                |
+| PUT    | `/api/me`                          | Update name, email and phone         |
 | PUT    | `/api/me/photo`                    | Set or remove profile photo          |
 | PUT    | `/api/me/password`                 | Change password                      |
 | DELETE | `/api/me`                          | Delete account                       |

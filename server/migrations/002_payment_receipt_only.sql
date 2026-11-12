@@ -1,0 +1,3 @@
+USE shsrs;
+
+ALTER TABLE payments MODIFY COLUMN method VARCHAR(100) NULL;
