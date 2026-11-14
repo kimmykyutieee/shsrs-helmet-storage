@@ -21,8 +21,18 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow SHSRS to access your camera to scan student ID QR codes.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
       "expo-sharing",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      "expo-status-bar"
     ]
   }
 }

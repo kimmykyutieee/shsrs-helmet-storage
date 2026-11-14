@@ -4,6 +4,7 @@ const cors = require('cors');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { verifyStudentQrSubmission } = require('./studentQr');
 
 const PORT = process.env.PORT || 3000;
 const SECRET = process.env.JWT_SECRET || 'change-this-secret';
@@ -21,6 +22,15 @@ const pool = mysql.createPool({
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
+
+app.get('/', (req, res) => {
+  console.log('Root endpoint accessed');
+
+  res.status(200).json({
+    message: 'SHSRS API is running successfully!',
+    status: 'online'
+  });
+});
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch((e) => {
   console.error(e); res.status(500).json({ error: 'Database/server error: ' + (e.code || e.message) });
@@ -55,16 +65,43 @@ app.get('/api/health', wrap(async (req, res) => {
 
 /* ---------- auth ---------- */
 app.post('/api/register', wrap(async (req, res) => {
-  const name = String(req.body.name || '').trim(), email = String(req.body.email || '').trim().toLowerCase(), pw = String(req.body.password || '');
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const parsed = verifyStudentQrSubmission(body);
+  if (parsed.error) {
+    const errors = {
+      invalid: 'Invalid or unsupported student ID QR code.',
+      studentId: 'The QR code must contain a 10-digit student ID.',
+      name: 'The QR code is missing the student name.',
+      course: 'The QR code is missing the course or program.',
+      mismatch: 'Student details do not match the scanned QR code.',
+    };
+    return bad(res, errors[parsed.error]);
+  }
+  const { name, studentId, course } = parsed.student;
+  const email = String(body.email || '').trim().toLowerCase(), pw = String(body.password || '');
   if (!name) return bad(res, 'Please enter your name.');
   if (!okMail(email)) return bad(res, 'Please enter a valid email address.');
   if (pw.length < 8) return bad(res, 'Password must be at least 8 characters.');
-  const phone = String(req.body.phone || '').trim();
+  const phone = String(body.phone || '').trim();
   if (!okPhone(phone)) return bad(res, 'Please enter a valid phone number.');
-  const [[ex]] = await pool.query('SELECT id FROM users WHERE email=?', [email]);
-  if (ex) return bad(res, 'That email is already registered.', 409);
-  const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM users');
-  const [r] = await pool.query('INSERT INTO users (name,email,password_hash,phone,is_admin) VALUES (?,?,?,?,?)', [name, email, await bcrypt.hash(pw, 10), phone, n === 0 ? 1 : 0]);
+  const [[existingStudent]] = await pool.query('SELECT id FROM users WHERE student_id=?', [studentId]);
+  if (existingStudent) return bad(res, 'This student ID is already registered.', 409);
+  const [[existingEmail]] = await pool.query('SELECT id FROM users WHERE email=?', [email]);
+  if (existingEmail) return bad(res, 'That email is already registered.', 409);
+  let r;
+  try {
+    [r] = await pool.query(
+      'INSERT INTO users (name,email,password_hash,phone,student_id,course,is_admin) VALUES (?,?,?,?,?,?,0)',
+      [name, email, await bcrypt.hash(pw, 10), phone, studentId, course],
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_ENTRY') throw e;
+    const [[duplicateEmail]] = await pool.query('SELECT id FROM users WHERE email=?', [email]);
+    if (duplicateEmail) return bad(res, 'That email is already registered.', 409);
+    const [[duplicateStudent]] = await pool.query('SELECT id FROM users WHERE student_id=?', [studentId]);
+    if (duplicateStudent) return bad(res, 'This student ID is already registered.', 409);
+    throw e;
+  }
   res.json({ token: token(r.insertId) });
 }));
 

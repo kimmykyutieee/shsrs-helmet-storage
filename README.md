@@ -11,7 +11,7 @@ Finance users review payments; administrators manage slots, reservations, users 
 ## Features
 
 **Riders**
-- Register / log in (passwords hashed with bcrypt, JWT sessions)
+- Scan a student ID QR containing a name, 10-digit student ID, and course/program before registering; log in with bcrypt-hashed passwords and JWT sessions
 - Dashboard with next reservation, free slots today and recent cabinet activity
 - Reserve a slot by date and time (live availability, no double bookings)
 - Submit a PHP 25.00 payment with a receipt image for Finance review
@@ -32,11 +32,13 @@ Finance users review payments; administrators manage slots, reservations, users 
 - Export reservations to CSV
 
 **Business rules (enforced by the server)**
+- Registration requires the scanned QR payload to contain a name, one 10-digit student ID, and a course/program; the student ID is unique
+- The current QR payload contains no school or campus data, so scanning does **not** verify USTP enrollment or prove that the ID is authentic or belongs to the person scanning
 - 12 slots; one booking per slot per date
 - Bookings must be in the future; blocked slots cannot be booked
 - QR access is denied until Finance verifies the PHP 25.00 payment
 - A QR scan unlocks a slot from **30 minutes before** the reserved time until the end of that day
-- The first account registered becomes the administrator
+- New registrations are Riders; provision administrator access separately
 - Passwords need at least 8 characters
 - Phone numbers are collected for future notifications; SMS delivery is not configured
 
@@ -89,7 +91,7 @@ shsrs/
 3. Import `server/schema.sql` (creates the `shsrs` database and tables).
 4. *(Optional)* import `server/demo_data.sql` for sample users and reservations.
 
-For an existing SHSRS database, apply the migrations in order: `server/migrations/001_finance_payments.sql`, then `server/migrations/002_payment_receipt_only.sql`. They add Finance/payment support and make the legacy payment-method column optional without deleting existing rows. Existing reservations remain unconfirmed until a receipt is submitted and approved.
+For an existing SHSRS database, apply the migrations in order: `server/migrations/001_finance_payments.sql`, `server/migrations/002_payment_receipt_only.sql`, then `server/migrations/003_student_registration.sql`. They add Finance/payment support, make the legacy payment-method column optional, and add student ID/course columns with a unique student ID index. Existing reservations remain unconfirmed until a receipt is submitted and approved.
 
 ### 2. Install the server and launcher
 ```bash
@@ -125,7 +127,7 @@ Open **http://localhost:8081** in your browser.
 | Rider | `maria@shsrs.demo`   | `Rider1234`|
 
 Other riders: `juan@`, `ana@`, `carlo@`, `liza@` `shsrs.demo` (same password).
-Without demo data, register in the app — the first account becomes the admin.
+Without demo data, registration creates Rider accounts only. A trusted database operator must provision an initial administrator directly in the database; there is no administrator self-service registration or promotion flow.
 
 ### Running on a phone (Expo Go)
 1. Phone and PC must be on the **same Wi-Fi**.

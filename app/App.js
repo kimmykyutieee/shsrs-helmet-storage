@@ -93,7 +93,7 @@ function Root() {
 
   const ctx = { db, refresh, signIn, nav, toast, me, c, s, mine, logout, toggleTheme, setInfo, wide, width };
   const manual = [
-    ['1', 'Register', 'Create an account with your name, email and a password of at least 8 characters.'],
+    ['1', 'Scan ID and register', 'Scan a student ID QR containing a name, 10-digit student ID and course/program, then enter your account details. The payload does not verify school, campus or ID authenticity.'],
     ['2', 'Reserve and pay', 'Choose a slot, date and time, then submit the PHP 25.00 payment method and receipt image.'],
     ['3', 'Wait for verification', 'Finance reviews your payment. Your reservation QR code is released after verification.'],
     ['4', 'Scan', 'Scan the verified code at the cabinet scanner to unlock your slot, then store or retrieve your helmet.'],

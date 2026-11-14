@@ -9,9 +9,12 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(100) NOT NULL,
   photo         MEDIUMTEXT NULL,
   phone         VARCHAR(30) NULL,
+  student_id    CHAR(10) NULL,
+  course        VARCHAR(100) NULL,
   is_admin      TINYINT(1) NOT NULL DEFAULT 0,
   is_finance    TINYINT(1) NOT NULL DEFAULT 0,
-  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_users_student_id (student_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS slots (
