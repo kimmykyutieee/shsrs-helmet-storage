@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { confirmBox } from '../../shared/utils/actions';
 import { PAYMENT_STATUS_LABELS } from '../../shared/constants/config';
 import { useApp } from '../../shared/hooks/useApp';
+import { fd, ft } from '../../shared/utils/date';
 import { Btn, Tag } from '../../components/common';
 
 const dateLabel = (value) => value ? String(value).replace('T', ' ') : '—';
@@ -16,6 +17,7 @@ function PaymentVerification({ payment, busy, onViewReceipt, onProcess }) {
         <Text style={s.cardTitle}>Payment #{payment.id}</Text><Tag kind="gold" text={PAYMENT_STATUS_LABELS[payment.status] || payment.status} />
       </View>
       <Text style={[s.text, { marginTop: 8 }]}>{payment.studentName} · Reservation #{payment.reservationId}</Text>
+      <Text style={s.muted}>Slot {payment.slot} · {fd(payment.date)} · {ft(payment.time)}</Text>
       <Text style={s.muted}>{amountLabel(payment.amount)}</Text>
       <Text style={s.muted}>Submitted {dateLabel(payment.submittedAt)}</Text>
       <Pressable onPress={() => onViewReceipt(payment)} style={{ marginTop: 12, alignSelf: 'flex-start' }}>

@@ -11,7 +11,7 @@ import { PAYMENT_AMOUNT, PAYMENT_CURRENCY, PAYMENT_STATUS_LABELS } from '../../s
 import { GOLD } from '../../shared/constants/theme';
 import { Layout, SlotGrid, DateTimeFields, Btn, Tag, InfoModal, IconBox } from '../../components/common';
 
-function Reservations() {
+function Reservations({ mode = 'booking' }) {
   const { db, refresh, me, mine, nav, toast, s, c, wide } = useApp();
   const [sel, setSel] = useState(0);
   const [rd, setRd] = useState(''); const [rt, setRt] = useState('');
@@ -26,7 +26,7 @@ function Reservations() {
 
   const paymentFor = (id) => (db.payments || []).filter((payment) => payment.reservationId === id).sort((a, b) => b.id - a.id)[0];
 
-  const taken = new Set(rd ? db.res.filter((r) => r.date === rd).map((r) => r.slot) : []);
+  const taken = new Set(rd ? (db.slotReservations || []).filter((r) => r.date === rd).map((r) => r.slot) : []);
   const eff = db.blocked.includes(sel) || taken.has(sel) ? 0 : sel;
   const rows = mine().filter((r) => `slot ${r.slot} ${r.date} ${fd(r.date)} ${ft(r.time)}`.toLowerCase().includes(q.toLowerCase()));
 
@@ -88,9 +88,9 @@ function Reservations() {
   };
 
   return (
-    <Layout cur="reservations" title="Reservations" subtitle="Book a cabinet slot and manage your reservations.">
+    <Layout cur={mode === 'mine' ? 'myReservations' : 'reservations'} title={mode === 'mine' ? 'My Reservations' : 'Reservation'} subtitle={mode === 'mine' ? 'Review and manage your reservations.' : 'Book a cabinet slot.'}>
       <View style={{ flexDirection: wide ? 'row' : 'column', gap: 18, alignItems: 'flex-start' }}>
-        <View style={{ width: wide ? 440 : '100%' }}>
+        {mode !== 'mine' ? <View style={{ width: wide ? 440 : '100%' }}>
           <View style={s.card}>
             <Text style={s.cardTitle}>1 · Select a slot</Text>
             <Text style={[s.cardSub, { marginBottom: 16 }]}>Choose any available cabinet slot.</Text>
@@ -101,11 +101,11 @@ function Reservations() {
             {er ? <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: c.badBg, padding: 12, borderRadius: 12, marginTop: 14 }}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={{ color: c.bad, flex: 1, fontWeight: '600' }}>{er}</Text></View> : null}
             <View style={{ marginTop: 18 }}><Btn full icon="checkmark-circle-outline" label="Confirm booking" onPress={book} /></View>
           </View>
-        </View>
-        <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%', minWidth: 0 }}>
+        </View> : null}
+        {mode !== 'booking' ? <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%', minWidth: 0 }}>
           <View style={s.card}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 10 }}>
-              <View><Text style={s.cardTitle}>Current reservations</Text><Text style={s.cardSub}>{rows.length} shown</Text></View>
+              <View><Text style={s.cardTitle}>My Reservations</Text><Text style={s.cardSub}>{rows.length} shown</Text></View>
               <Btn small variant="outline" icon="download-outline" label="PDF" onPress={pdf} />
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
@@ -127,6 +127,7 @@ function Reservations() {
                     <View style={s.row}>
                       {r.stored ? <Tag kind="gold" text="Stored" /> : null}
                       <Tag kind={isPast(r) ? 'mute' : 'ok'} text={isPast(r) ? 'Completed' : 'Upcoming'} />
+                      <Tag kind={r.status === 'Confirmed' ? 'ok' : 'gold'} text={r.status || 'Pending'} />
                       <Tag kind={payment?.status === 'Verified' ? 'ok' : payment?.status === 'Rejected' ? 'bad' : 'gold'} text={PAYMENT_STATUS_LABELS[payment?.status] || 'Payment required'} />
                     </View>
                   </View>
@@ -149,7 +150,7 @@ function Reservations() {
               </View>
             )}
           </View>
-        </View>
+        </View> : null}
       </View>
 
       <InfoModal visible={!!edit} title={edit ? `Reschedule Slot ${edit.slot}` : ''} onClose={() => setEdit(null)}>

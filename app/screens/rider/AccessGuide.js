@@ -9,9 +9,9 @@ function Guide() {
   const steps = [
     ['card-outline', 'Submit payment and wait for Finance verification', 'Your reservation QR code is available only after payment is verified.'],
     ['walk-outline', 'Go to your reserved storage cabinet', 'Head to the cabinet area at your reserved time.'],
-    ['qr-code-outline', 'Scan the QR code on the cabinet scanner', 'Hold your QR pass in front of the scanner.'],
-    ['lock-open-outline', 'Cabinet will automatically unlock', 'Your slot opens up to 30 minutes before your reserved time.'],
-    ['shield-checkmark-outline', 'Store or retrieve your helmet safely', 'Close the door — scanning again toggles between storing and retrieving.'],
+    ['qr-code-outline', 'Present your QR code to Security staff', 'Security staff scan your reservation pass with the Camera Scanner.'],
+    ['lock-open-outline', 'Wait for access verification', 'The app verifies your reservation and payment from 30 minutes before your reserved time until the end of that day.'],
+    ['shield-checkmark-outline', 'Store or retrieve your helmet safely', 'Security records the storage or retrieval action. This prototype does not directly control a physical cabinet lock.'],
   ];
   return (
     <Layout cur="guide" title="Cabinet Access Guide" subtitle="How to use your reserved storage cabinet.">

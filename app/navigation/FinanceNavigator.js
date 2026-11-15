@@ -1,8 +1,9 @@
 import React from 'react';
-import { FinanceDashboard } from '../screens/finance';
+import { FinanceDashboard, FinanceHistory } from '../screens/finance';
 
 function FinanceNavigator({ route }) {
-  return route.n === 'finance' ? <FinanceDashboard /> : null;
+  if (route.n === 'financeHistory') return <FinanceHistory />;
+  return <FinanceDashboard />;
 }
 
 export default FinanceNavigator;

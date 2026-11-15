@@ -1,10 +1,9 @@
 import React from 'react';
 import SidebarItems from '../common/SidebarItems';
-
-const items = [['finance', 'wallet-outline', 'Finance', 'Finance']];
+import { FINANCE_NAV } from '../../shared/constants/theme';
 
 function FinanceSidebar(props) {
-  return <SidebarItems items={items} {...props} />;
+  return <SidebarItems items={FINANCE_NAV} {...props} />;
 }
 
 export default FinanceSidebar;

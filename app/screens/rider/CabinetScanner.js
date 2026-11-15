@@ -9,14 +9,14 @@ import { GOLD } from '../../shared/constants/theme';
 import { Layout, Btn, LogList } from '../../components/common';
 
 function Scan() {
-  const { db, refresh, mine, s, c, wide } = useApp();
+  const { db, refresh, mine, me, s, c, wide } = useApp();
   const [v, setV] = useState('');
   const [res, setRes] = useState(null);
   const [cam, setCam] = useState(false);
   const [perm, askPerm] = useCameraPermissions();
   const lock = useRef(false);
-  const up = mine().filter((r) => !isPast(r) || r.date === today());
-  const log = db.log.filter((x) => x.uid === db.me).slice().reverse();
+  const up = me.security ? [] : mine().filter((r) => !isPast(r) || r.date === today());
+  const log = me.security ? db.log.slice().reverse() : db.log.filter((x) => x.uid === db.me).slice().reverse();
 
   const doScan = async (raw) => {
     try {
@@ -36,12 +36,12 @@ function Scan() {
   };
 
   return (
-    <Layout cur="scan" title="Cabinet Scanner" subtitle="Scan your QR pass to unlock your slot.">
+    <Layout cur={me.security ? 'securityScan' : 'scan'} title={me.security ? 'Camera Scanner' : 'Cabinet Scanner'} subtitle={me.security ? 'Verify a rider reservation QR code at the cabinet.' : 'Scan your QR pass to unlock your slot.'}>
       <View style={{ flexDirection: wide ? 'row' : 'column', gap: 18, alignItems: 'flex-start' }}>
         <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%' }}>
           <View style={s.card}>
-            <Text style={s.cardTitle}>Scan your QR code</Text>
-            <Text style={[s.cardSub, { marginBottom: 16 }]}>Use the camera, or enter a reservation ID to simulate the cabinet reader.</Text>
+            <Text style={s.cardTitle}>{me.security ? 'Scan a rider QR code' : 'Scan your QR code'}</Text>
+            <Text style={[s.cardSub, { marginBottom: 16 }]}>{me.security ? 'Verify the reservation before assisting with helmet storage or retrieval.' : 'Use the camera, or enter a reservation ID to simulate the cabinet reader.'}</Text>
             {cam ? (
               <View style={{ height: 280, borderRadius: 16, overflow: 'hidden', marginBottom: 14, borderWidth: 2, borderColor: GOLD }}>
                 <CameraView style={{ flex: 1 }} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onCode} />
@@ -69,9 +69,11 @@ function Scan() {
             ) : null}
           </View>
         </View>
-        <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%' }}>
-          <View style={s.card}><Text style={s.cardTitle}>Cabinet activity</Text><Text style={[s.cardSub, { marginBottom: 6 }]}>Your store and retrieve history.</Text><LogList list={log} /></View>
-        </View>
+        {!me.security ? (
+          <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%' }}>
+            <View style={s.card}><Text style={s.cardTitle}>Cabinet activity</Text><Text style={[s.cardSub, { marginBottom: 6 }]}>Your store and retrieve history.</Text><LogList list={log} /></View>
+          </View>
+        ) : null}
       </View>
     </Layout>
   );

@@ -8,11 +8,19 @@ const lift = (dark, strong) => Platform.select({
   default: { shadowColor: '#0f172a', shadowOpacity: dark ? 0.4 : strong ? 0.16 : 0.07, shadowRadius: strong ? 22 : 14, shadowOffset: { width: 0, height: strong ? 10 : 6 }, elevation: strong ? 6 : 2 },
 });
 const NAV = [
-  ['dashboard', 'grid-outline', 'Dashboard', 'Overview'],
-  ['reservations', 'calendar-outline', 'Reservations', 'Reserve'],
+  ['dashboard', 'grid-outline', 'Home', 'Home'],
+  ['reservations', 'calendar-outline', 'Reservation', 'Reserve'],
   ['qr', 'qr-code-outline', 'QR Code', 'QR'],
-  ['scan', 'scan-outline', 'Cabinet Scanner', 'Scan'],
+  ['myReservations', 'calendar-outline', 'My Reservations', 'My Res.'],
   ['guide', 'book-outline', 'Access Guide', 'Guide'],
+];
+const FINANCE_NAV = [
+  ['financePending', 'wallet-outline', 'Pending Payments', 'Pending'],
+  ['financeHistory', 'time-outline', 'History', 'History'],
+];
+const SECURITY_NAV = [
+  ['securityScan', 'scan-outline', 'Camera Scanner', 'Scanner'],
+  ['securityActivity', 'list-outline', 'Cabinet Activity', 'Activity'],
 ];
 const ADMIN_NAV = [
   ['dashboard', 'grid-outline', 'Dashboard', 'Dashboard'],
@@ -21,10 +29,10 @@ const ADMIN_NAV = [
   ['adminReservations', 'calendar-outline', 'Reservations', 'Reservations'],
   ['adminUsers', 'people-outline', 'Users', 'Users'],
 ];
-const PROTECTED = ['dashboard', 'reservations', 'qr', 'scan', 'guide', 'profile', 'admin', 'adminSlots', 'adminLogs', 'adminReservations', 'adminUsers', 'finance'];
+const PROTECTED = ['dashboard', 'slots', 'reservations', 'myReservations', 'qr', 'scan', 'guide', 'profile', 'admin', 'adminSlots', 'adminLogs', 'adminReservations', 'adminUsers', 'finance', 'financePending', 'financeHistory', 'securityScan', 'securityActivity'];
 const SLOTS = Array.from({ length: 12 }, (_, i) => i + 1);
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const WEB = Platform.OS === 'web';
 
-export { NAVY, NAVY2, GOLD, LIGHT, DARK, lift, NAV, ADMIN_NAV, PROTECTED, SLOTS, MON, DAYS, WEB };
+export { NAVY, NAVY2, GOLD, LIGHT, DARK, lift, NAV, ADMIN_NAV, FINANCE_NAV, SECURITY_NAV, PROTECTED, SLOTS, MON, DAYS, WEB };

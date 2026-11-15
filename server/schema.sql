@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   course        VARCHAR(100) NULL,
   is_admin      TINYINT(1) NOT NULL DEFAULT 0,
   is_finance    TINYINT(1) NOT NULL DEFAULT 0,
+  is_security   TINYINT(1) NOT NULL DEFAULT 0,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_users_student_id (student_id)
 ) ENGINE=InnoDB;

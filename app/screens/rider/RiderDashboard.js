@@ -8,10 +8,11 @@ import { Layout, Stat, Gradient, Btn, LogList } from '../../components/common';
 function Dashboard() {
   const { db, me, mine, nav, s, c, wide } = useApp();
   const r = mine(); const up = r.filter((x) => !isPast(x)); const nx = up[0];
-  const freeToday = 12 - new Set(db.res.filter((x) => x.date === today()).map((x) => x.slot)).size;
+  const takenToday = new Set((db.slotReservations || []).filter((x) => x.date === today()).map((x) => x.slot));
+  const freeToday = (db.slots || []).filter((slot) => !slot.blocked && !takenToday.has(slot.slot)).length;
   const recent = db.log.filter((x) => x.uid === db.me).slice().reverse().slice(0, 4);
   return (
-    <Layout cur="dashboard" title={`${greet()}, ${me.name.split(' ')[0]}`} subtitle="Here's what's happening with your helmet storage.">
+    <Layout cur="dashboard" title="Home" subtitle={`${greet()}, ${me.name.split(' ')[0]} — here's what's happening with your helmet storage.`}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginBottom: 18 }}>
         <Stat icon="calendar-outline" value={up.length} label="Upcoming reservations" />
         <Stat icon="lock-open-outline" value={freeToday} label="Slots free today" tone="ok" />
@@ -34,7 +35,7 @@ function Dashboard() {
                 <Text style={{ color: '#aebbd8', marginTop: 4, fontSize: 15 }}>{fd(nx.date)} · {ft(nx.time)}</Text>
                 <View style={{ flexDirection: 'row', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
                   <Btn variant="gold" icon="qr-code-outline" label="Show QR code" onPress={() => nav('qr', nx.id)} />
-                  <Btn variant="ghostDark" icon="calendar-outline" label="Manage" onPress={() => nav('reservations')} />
+                  <Btn variant="ghostDark" icon="calendar-outline" label="Manage" onPress={() => nav('myReservations')} />
                 </View>
               </>
             ) : (

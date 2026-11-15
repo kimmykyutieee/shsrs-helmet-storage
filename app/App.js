@@ -11,7 +11,8 @@ import { mk } from './styles/theme';
 import { Shield, InfoModal } from './components/common';
 import RootNavigator from './navigation/RootNavigator';
 
-const EMPTY = { me: null, users: [], res: [], blocked: [], log: [], payments: [] };
+const EMPTY = { me: null, users: [], res: [], slotReservations: [], slots: [], blocked: [], log: [], payments: [] };
+const homeRoute = (user) => user?.admin ? 'dashboard' : user?.finance ? 'financePending' : user?.security ? 'securityScan' : 'dashboard';
 
 function Root() {
   const sys = useColorScheme();
@@ -37,7 +38,7 @@ function Root() {
           const d = await api('GET', '/api/data');
           setDb(d);
           const user = d.users.find((u) => u.id === d.me);
-          setRoute({ n: user?.finance ? 'finance' : 'dashboard', arg: null });
+          setRoute({ n: homeRoute(user), arg: null });
           return;
         }
         catch (e) { if (/reach/i.test(e.message)) throw e; setToken(null); AsyncStorage.removeItem(TOKEN_KEY); }
@@ -72,7 +73,7 @@ function Root() {
     await AsyncStorage.setItem(TOKEN_KEY, tok);
     const data = await refresh();
     const user = data.users.find((u) => u.id === data.me);
-    nav(user?.finance ? 'finance' : 'dashboard');
+    nav(homeRoute(user));
   };
   const logout = () => { setToken(null); AsyncStorage.removeItem(TOKEN_KEY); setDb(EMPTY); nav('home'); };
   const me = db.users.find((u) => u.id === db.me);
@@ -85,18 +86,22 @@ function Root() {
 
   let n = route.n;
   if (PROTECTED.includes(n) && !me) n = 'login';
-  if ((n === 'login' || n === 'register') && me) n = me.finance ? 'finance' : 'dashboard';
-  if (me?.finance && n !== 'finance') n = 'finance';
-  if (n === 'finance' && me && !me.finance) n = me.admin ? 'admin' : 'dashboard';
+  if ((n === 'login' || n === 'register') && me) n = homeRoute(me);
+  const financeRoutes = ['finance', 'financePending', 'financeHistory'];
+  const securityRoutes = ['securityScan', 'securityActivity'];
+  if (me?.finance && !financeRoutes.includes(n)) n = 'financePending';
+  if (me?.security && !securityRoutes.includes(n)) n = 'securityScan';
+  if (financeRoutes.includes(n) && me && !me.finance) n = me.admin ? 'admin' : me.security ? 'securityScan' : 'dashboard';
+  if (securityRoutes.includes(n) && me && !me.security) n = me.admin ? 'admin' : me.finance ? 'financePending' : 'dashboard';
   if (n.startsWith('admin') && me && !me.admin) n = 'dashboard';
-  if (me?.admin && ['reservations', 'qr', 'scan', 'guide'].includes(n)) n = 'dashboard';
+  if (me?.admin && ['slots', 'reservations', 'myReservations', 'qr', 'scan', 'guide'].includes(n)) n = 'dashboard';
 
   const ctx = { db, refresh, signIn, nav, toast, me, c, s, mine, logout, toggleTheme, setInfo, wide, width };
   const manual = [
     ['1', 'Scan ID and register', 'Scan a student ID QR containing a name, 10-digit student ID and course/program, then enter your account details. The payload does not verify school, campus or ID authenticity.'],
     ['2', 'Reserve and pay', 'Choose a slot, date and time, then submit the PHP 25.00 payment method and receipt image.'],
     ['3', 'Wait for verification', 'Finance reviews your payment. Your reservation QR code is released after verification.'],
-    ['4', 'Scan', 'Scan the verified code at the cabinet scanner to unlock your slot, then store or retrieve your helmet.'],
+    ['4', 'Security scan', 'Security staff verify the rider QR code with the Camera Scanner before the helmet is stored or retrieved.'],
     ['5', 'Manage', 'Search, reschedule or cancel reservations, and export the list as a PDF.'],
   ];
   return (

@@ -5,11 +5,12 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import Svg, { Path, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../../shared/hooks/useApp';
-import { NAVY, NAVY2, GOLD, lift, NAV, ADMIN_NAV, SLOTS, WEB } from '../../shared/constants/theme';
+import { NAVY, NAVY2, GOLD, lift, NAV, ADMIN_NAV, FINANCE_NAV, SECURITY_NAV, SLOTS, WEB } from '../../shared/constants/theme';
 import { today, dt, fd, ft, hm, ymd, stamp } from '../../shared/utils/date';
 import AdminSidebar from '../admin/AdminSidebar';
 import FinanceSidebar from '../finance/FinanceSidebar';
 import RiderSidebar from '../rider/RiderSidebar';
+import SecuritySidebar from '../security/SecuritySidebar';
 import AdminHeader from '../admin/AdminHeader';
 import FinanceHeader from '../finance/FinanceHeader';
 import RiderHeader from '../rider/RiderHeader';
@@ -197,9 +198,9 @@ function SlotGrid({ taken, blocked, sel, onSel, admin, onAdminTap }) {
 function Layout({ cur, title, subtitle, children }) {
   const { c, s, me, nav, logout, toggleTheme, wide } = useApp();
   const [menu, setMenu] = useState(false);
-  const Sidebar = me.finance ? FinanceSidebar : me.admin ? AdminSidebar : RiderSidebar;
+  const Sidebar = me.finance ? FinanceSidebar : me.admin ? AdminSidebar : me.security ? SecuritySidebar : RiderSidebar;
   const Header = me.finance ? FinanceHeader : me.admin ? AdminHeader : RiderHeader;
-  const items = me.finance ? [['finance', 'wallet-outline', 'Finance', 'Finance']] : me.admin ? ADMIN_NAV : NAV;
+  const items = me.finance ? FINANCE_NAV : me.admin ? ADMIN_NAV : me.security ? SECURITY_NAV : NAV;
 
   const content = (
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: wide ? 32 : 16, paddingBottom: wide ? 60 : 30 }}>
@@ -228,7 +229,7 @@ function Layout({ cur, title, subtitle, children }) {
             )}
           </View>
           <View style={[s.divider, { marginVertical: 4 }]} />
-          {[...(me.finance ? [] : [['person-outline', 'Profile', () => nav('profile')]]), [c.dark ? 'sunny-outline' : 'moon-outline', c.dark ? 'Light mode' : 'Dark mode', toggleTheme], ['log-out-outline', 'Log out', logout]].map(([ico, label, fn]) => (
+          {[...(me.finance || me.security ? [] : [['person-outline', 'Profile', () => nav('profile')]]), [c.dark ? 'sunny-outline' : 'moon-outline', c.dark ? 'Light mode' : 'Dark mode', toggleTheme], ['log-out-outline', 'Log out', logout]].map(([ico, label, fn]) => (
             <TouchableOpacity key={label} onPress={() => { setMenu(false); fn(); }} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', padding: 12, borderRadius: 10 }}>
               <Ionicons name={ico} size={18} color={label === 'Log out' ? c.bad : c.text} /><Text style={{ color: label === 'Log out' ? c.bad : c.text, fontWeight: '600' }}>{label}</Text>
             </TouchableOpacity>
@@ -254,7 +255,7 @@ function Layout({ cur, title, subtitle, children }) {
             <Avatar u={me} size={38} ring />
             <View style={{ flex: 1 }}>
               <Text numberOfLines={1} style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>{me.name}</Text>
-              <Text style={{ color: '#8fa3cc', fontSize: 12 }}>{me.admin ? 'Administrator' : 'Rider'}</Text>
+              <Text style={{ color: '#8fa3cc', fontSize: 12 }}>{me.admin ? 'Administrator' : me.finance ? 'Finance' : me.security ? 'Security' : 'Rider'}</Text>
             </View>
             <Ionicons name="ellipsis-horizontal" size={18} color="#8fa3cc" />
           </TouchableOpacity>
