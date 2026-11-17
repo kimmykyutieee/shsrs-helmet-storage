@@ -7,7 +7,8 @@ import { useApp } from '../../shared/hooks/useApp';
 import { login, register } from '../../services/authService';
 import { okMail } from '../../shared/utils/date';
 import { GOLD } from '../../shared/constants/theme';
-import { Shield, Gradient, Btn, Field } from '../../components/common';
+import { Shield, Gradient, Btn, Field } from '../../components';
+import { staticStyles, dynamicStyles } from '../../components/auth.styles';
 
 function Auth({ reg }) {
   const { signIn, nav, toast, s, c, width } = useApp();
@@ -110,30 +111,30 @@ function Auth({ reg }) {
   };
 
   const form = (
-    <View style={{ width: '100%', maxWidth: 420 }}>
+    <View style={staticStyles.authView1}>
       {!wide && (
-        <TouchableOpacity onPress={() => nav('home')} style={{ alignItems: 'center', marginBottom: 18 }}><Shield size={50} /></TouchableOpacity>
+        <TouchableOpacity onPress={() => nav('home')} style={staticStyles.authTouchableOpacity2}><Shield size={50} /></TouchableOpacity>
       )}
-      <Text style={{ color: c.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.8 }}>{reg && !student ? 'Registration' : reg ? 'Create your account' : 'Welcome back'}</Text>
-      <Text style={[s.muted, { marginTop: 6, marginBottom: 26 }]}>{reg && !student ? '' : reg ? 'Complete your account details to continue.' : 'Log in to manage your reservations.'}</Text>
+      <Text style={dynamicStyles.authText3({ c })}>{reg && !student ? 'Registration' : reg ? 'Create your account' : 'Welcome back'}</Text>
+      <Text style={[s.muted, staticStyles.authText4]}>{reg && !student ? '' : reg ? 'Complete your account details to continue.' : 'Log in to manage your reservations.'}</Text>
       {reg && !student ? (
         <>
           {camera ? (
-            <View style={{ height: 280, borderRadius: 16, overflow: 'hidden', marginBottom: 14, borderWidth: 2, borderColor: c.gold }}>
+            <View style={dynamicStyles.authView5({ c })}>
               <CameraView
-                style={{ flex: 1 }}
+                style={staticStyles.authCameraView6}
                 facing="back"
                 barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
                 onBarcodeScanned={onStudentQrScanned}
               />
             </View>
           ) : (
-            <View style={{ minHeight: 150, borderRadius: 16, borderWidth: 1, borderColor: c.line, backgroundColor: c.soft, alignItems: 'center', justifyContent: 'center', padding: 20, marginBottom: 14 }}>
+            <View style={dynamicStyles.authView7({ c })}>
               <Ionicons name="qr-code-outline" size={40} color={c.gold} />
-              <Text style={[s.muted, { textAlign: 'center', marginTop: 10 }]}>Scan the QR code on your Student ID to continue.</Text>
+              <Text style={[s.muted, staticStyles.authText8]}>Scan the QR code on your Student ID to continue.</Text>
             </View>
           )}
-          {er ? <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: c.badBg, padding: 12, borderRadius: 12, marginBottom: 14 }}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={{ color: c.bad, flex: 1, fontWeight: '600' }}>{er}</Text></View> : null}
+          {er ? <View style={dynamicStyles.authView9({ c })}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={dynamicStyles.authText10({ c })}>{er}</Text></View> : null}
           <Btn
             full
             label={cameraBusy ? 'Requesting camera…' : camera ? 'Close camera' : 'Open camera'}
@@ -145,16 +146,16 @@ function Auth({ reg }) {
       ) : (
         <>
           {reg && student ? (
-            <View style={{ borderWidth: 1, borderColor: c.line, backgroundColor: c.soft, borderRadius: 14, padding: 16, marginBottom: 18 }}>
-              <Text style={{ color: c.text, fontWeight: '800', marginBottom: 10 }}>Scanned student ID details</Text>
+            <View style={dynamicStyles.authView11({ c })}>
+              <Text style={dynamicStyles.authText12({ c })}>Scanned student ID details</Text>
               {[['Full name', student.name], ['Student ID', student.studentId], ['Course / program', student.course]].map(([label, value]) => (
-                <View key={label} style={{ marginTop: 7 }}>
-                  <Text style={[s.muted, { fontSize: 12 }]}>{label}</Text>
-                  <Text selectable style={{ color: c.text, fontWeight: '700', marginTop: 2 }}>{value}</Text>
+                <View key={label} style={staticStyles.authView13}>
+                  <Text style={[s.muted, staticStyles.authText14]}>{label}</Text>
+                  <Text selectable style={dynamicStyles.authText15({ c })}>{value}</Text>
                 </View>
               ))}
 
-              <View style={{ marginTop: 12 }}>
+              <View style={staticStyles.authView16}>
                 <Btn small variant="outline" icon="refresh-outline" label="Scan again" onPress={() => { setStudent(null); setStudentQr(''); setEr(''); startScan(); }} />
               </View>
             </View>
@@ -165,33 +166,33 @@ function Auth({ reg }) {
           {reg && <Field label="Confirm password" icon="lock-closed-outline" secure value={f.c} onChangeText={set('c')} placeholder="Repeat password" onSubmitEditing={submit} />}
         </>
       )}
-      {er && (!reg || student) ? <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: c.badBg, padding: 12, borderRadius: 12, marginBottom: 14 }}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={{ color: c.bad, flex: 1, fontWeight: '600' }}>{er}</Text></View> : null}
+      {er && (!reg || student) ? <View style={dynamicStyles.authView9({ c })}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={dynamicStyles.authText10({ c })}>{er}</Text></View> : null}
       {(!reg || student) ? <Btn full label={busy ? 'Please wait…' : reg ? 'Create account' : 'Log in'} icon={busy ? undefined : 'arrow-forward'} onPress={busy ? undefined : submit} /> : null}
-      <Text style={{ color: c.muted, textAlign: 'center', marginTop: 22 }}>
+      <Text style={dynamicStyles.authText19({ c })}>
         {reg ? 'Already registered? ' : 'Need an account? '}
-        <Text onPress={() => nav(reg ? 'login' : 'register')} style={{ color: c.gold, fontWeight: '700' }}>{reg ? 'Log in' : 'Register'}</Text>
+        <Text onPress={() => nav(reg ? 'login' : 'register')} style={dynamicStyles.authText20({ c })}>{reg ? 'Log in' : 'Register'}</Text>
       </Text>
-      <Text onPress={() => nav('home')} style={{ color: c.muted, textAlign: 'center', marginTop: 14, fontSize: 13 }}>← Back to home</Text>
+      <Text onPress={() => nav('home')} style={dynamicStyles.authText21({ c })}>← Back to home</Text>
     </View>
   );
 
   return (
-    <View style={{ flex: 1, flexDirection: 'row', backgroundColor: c.bg }}>
+    <View style={dynamicStyles.authView22({ c })}>
       {wide && (
-        <View style={{ flex: 1, overflow: 'hidden', justifyContent: 'space-between', padding: 48 }}>
+        <View style={staticStyles.authView23}>
           <Gradient id="authbg" from="#08122b" to="#17397f" />
-          <View style={{ position: 'absolute', right: -100, bottom: -100, width: 360, height: 360, borderRadius: 180, backgroundColor: 'rgba(212,160,23,0.12)' }} />
-          <TouchableOpacity onPress={() => nav('home')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><Shield size={38} /><Text style={{ color: '#fff', fontWeight: '800', fontSize: 19, letterSpacing: 0.6 }}>SHSRS</Text></TouchableOpacity>
+          <View style={staticStyles.authView24} />
+          <TouchableOpacity onPress={() => nav('home')} style={staticStyles.authTouchableOpacity25}><Shield size={38} /><Text style={staticStyles.authText26}>SHSRS</Text></TouchableOpacity>
           <View>
-            <Text style={{ color: '#fff', fontSize: 40, fontWeight: '800', letterSpacing: -1.2, lineHeight: 46 }}>Your helmet, <Text style={{ color: GOLD }}>safe</Text> and always within reach.</Text>
-            <Text style={{ color: '#aebbd8', fontSize: 16.5, lineHeight: 26, marginTop: 16, maxWidth: 440 }}>Reserve a cabinet slot, submit payment for review, then use your verified QR code to unlock storage.</Text>
+            <Text style={staticStyles.authText27}>Your helmet, <Text style={dynamicStyles.authText28({ GOLD })}>safe</Text> and always within reach.</Text>
+            <Text style={staticStyles.authText29}>Reserve a cabinet slot, submit payment for review, then use your verified QR code to unlock storage.</Text>
           </View>
-          <Text style={{ color: '#6c80ab', fontSize: 12.5 }}>© 2026 Helmet Reservation Storage System</Text>
+          <Text style={staticStyles.authText30}>© 2026 Helmet Reservation Storage System</Text>
         </View>
       )}
-      <SafeAreaView style={{ flex: 1 }}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }} keyboardShouldPersistTaps="handled">{form}</ScrollView>
+      <SafeAreaView style={staticStyles.authCameraView6}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={staticStyles.authCameraView6}>
+          <ScrollView contentContainerStyle={staticStyles.authContentContainer1} keyboardShouldPersistTaps="handled">{form}</ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </View>

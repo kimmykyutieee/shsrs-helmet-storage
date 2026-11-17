@@ -1,6 +1,6 @@
 import React from 'react';
-import SidebarItems from '../common/SidebarItems';
-import { ADMIN_NAV } from '../../shared/constants/theme';
+import SidebarItems from './SidebarItems';
+import { ADMIN_NAV } from '../shared/constants/theme';
 
 function AdminSidebar(props) {
   return <SidebarItems items={ADMIN_NAV} {...props} />;

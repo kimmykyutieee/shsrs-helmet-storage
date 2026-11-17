@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Image, Text, View } from 'react-native';
 import { useApp } from '../../shared/hooks/useApp';
 import { getPendingPayments, getPaymentReceipt, decidePayment } from '../../services/paymentService';
-import { Layout, InfoModal } from '../../components/common';
+import { Layout, InfoModal } from '../../components';
+import { staticStyles, dynamicStyles } from '../../components/finance.styles';
 import FinanceReservations from './FinanceReservations';
 
 function Finance() {
@@ -14,17 +15,19 @@ function Finance() {
   const [receiptImage, setReceiptImage] = useState('');
   const [receiptLoading, setReceiptLoading] = useState(false);
 
-  const viewPayments = async () => {
+  const viewPayments = useCallback(async () => {
     try {
       const result = await getPendingPayments();
       setPending(result.payments);
       setError('');
     } catch (x) { setError(x.message); }
-  };
+  }, []);
 
   useEffect(() => {
     viewPayments();
-  }, []);
+    const interval = setInterval(viewPayments, 15000);
+    return () => clearInterval(interval);
+  }, [viewPayments]);
 
   const processPayment = async (payment, decision) => {
     setBusy(payment.id);
@@ -52,7 +55,7 @@ function Finance() {
 
   return (
     <Layout cur="financePending" title="Pending Payments" subtitle="Review student-submitted payments.">
-      <View style={[s.card, { borderColor: c.gold }]}>
+      <View style={[s.card, dynamicStyles.financeDashboardView1({ c })]}>
         <Text style={s.cardTitle}>SMS notifications are unavailable</Text>
         <Text style={s.cardSub}>No SMS provider is configured. Students can check their payment and QR status in the app.</Text>
       </View>
@@ -66,7 +69,7 @@ function Finance() {
       />
       <InfoModal visible={!!receiptPayment} title={`Payment #${receiptPayment?.id || ''} receipt`} onClose={() => setReceiptPayment(null)}>
         {receiptLoading ? <Text style={s.muted}>Loading receipt…</Text> : null}
-        {receiptImage ? <Image source={{ uri: receiptImage }} style={{ width: '100%', height: 420 }} resizeMode="contain" /> : null}
+        {receiptImage ? <Image source={{ uri: receiptImage }} style={staticStyles.financeDashboardImage2} resizeMode="contain" /> : null}
       </InfoModal>
     </Layout>
   );

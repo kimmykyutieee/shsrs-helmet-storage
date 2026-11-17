@@ -4,6 +4,11 @@ const cors = require('cors');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const multer = require('multer');
+const { MAX_RECEIPT_BYTES, validateReceiptImage } = require('./receiptImage');
 const { verifyStudentQrSubmission } = require('./studentQr');
 
 const PORT = process.env.PORT || 3000;
@@ -20,8 +25,15 @@ const pool = mysql.createPool({
 });
 
 const app = express();
+const uploadDir = path.join(__dirname, 'uploads', 'receipts');
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_RECEIPT_BYTES },
+});
+
 app.use(cors());
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '15mb' }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.get('/', (req, res) => {
   console.log('Root endpoint accessed');
@@ -43,6 +55,12 @@ const okTime = (t) => /^\d{2}:\d{2}$/.test(t || '');
 const dt = (d, t) => { const [y, m, da] = d.split('-').map(Number); const [h, mi] = (t || '00:00').split(':').map(Number); return new Date(y, m - 1, da, h, mi); };
 const fd = (d) => { const [y, m, da] = d.split('-').map(Number); return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m - 1]} ${da}, ${y}`; };
 const ft = (t) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+const receiptUrl = (req, value) => {
+  if (!value) return '';
+  if (value.startsWith('data:image/') || value.startsWith('http://') || value.startsWith('https://')) return value;
+  if (value.startsWith('/')) return `${req.protocol}://${req.get('host')}${value}`;
+  return value;
+};
 
 const auth = wrap(async (req, res, next) => {
   const h = req.headers.authorization || '';
@@ -161,13 +179,34 @@ app.get('/api/data', auth, wrap(async (req, res) => {
 }));
 
 /* ---------- student payment submission ---------- */
-app.post('/api/reservations/:id/payments', auth, riderOrAdmin, wrap(async (req, res) => {
+app.post('/api/reservations/:id/payments', auth, riderOrAdmin, upload.single('receipt'), wrap(async (req, res) => {
   const reservationId = parseInt(req.params.id, 10);
-  const receipt = String(req.body.receipt || '');
   if (!Number.isInteger(reservationId) || reservationId < 1) return bad(res, 'Reservation not found.', 404);
-  if (!/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(receipt)) return bad(res, 'Upload a valid payment receipt image.');
+
+  let imageBuffer = req.file && req.file.buffer;
+  if (!imageBuffer) {
+    const dataUrl = String(req.body.receipt || '');
+    const match = dataUrl.match(/^data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/]*={0,2})$/i);
+    if (!match) return bad(res, 'Upload a valid image file.');
+    if (match[1].length > Math.ceil(MAX_RECEIPT_BYTES / 3) * 4) {
+      return bad(res, 'The image must be 5 MB or smaller.', 413);
+    }
+    imageBuffer = Buffer.from(match[1], 'base64');
+  }
+
+  let image;
+  try {
+    image = await validateReceiptImage(imageBuffer);
+  } catch (e) {
+    if (e.message === 'The image must be 5 MB or smaller.') return bad(res, e.message, 413);
+    if (e.message === 'Choose a non-empty image file.' || e.message === 'The file is not a supported image.') {
+      return bad(res, e.message);
+    }
+    return bad(res, 'The image file is corrupted or unsupported.');
+  }
 
   const connection = await pool.getConnection();
+  let storedPath;
   try {
     await connection.beginTransaction();
     const [[reservation]] = await connection.query('SELECT id, status FROM reservations WHERE id=? AND user_id=? FOR UPDATE', [reservationId, req.uid]);
@@ -187,14 +226,26 @@ app.post('/api/reservations/:id/payments', auth, riderOrAdmin, wrap(async (req, 
       await connection.rollback();
       return bad(res, existing.status === 'Verified' ? 'Payment is already verified.' : 'A payment is already awaiting review.', 409);
     }
+    const filename = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.${image.extension}`;
+    storedPath = path.join(uploadDir, filename);
+    await fs.promises.mkdir(uploadDir, { recursive: true });
+    await fs.promises.writeFile(storedPath, imageBuffer, { flag: 'wx' });
+    const receipt = `/uploads/receipts/${filename}`;
     const [payment] = await connection.query(
       'INSERT INTO payments (reservation_id,user_id,amount,receipt) VALUES (?,?,?,?)',
       [reservationId, req.uid, PAYMENT_AMOUNT, receipt],
     );
     await connection.commit();
-    res.json({ id: payment.insertId, status: 'Pending' });
+    storedPath = null;
+    res.json({ id: payment.insertId, status: 'Pending', receipt: receiptUrl(req, receipt) });
   } catch (e) {
     await connection.rollback();
+    if (storedPath) {
+      try { await fs.promises.unlink(storedPath); }
+      catch (cleanupError) {
+        if (cleanupError.code !== 'ENOENT') console.error('Could not remove unreferenced receipt image:', cleanupError);
+      }
+    }
     throw e;
   } finally {
     connection.release();
@@ -215,7 +266,7 @@ app.get('/api/finance/payments/:id/receipt', auth, financeOnly, wrap(async (req,
     ? await pool.query("SELECT receipt FROM payments WHERE id=? AND status='Pending'", [paymentId])
     : [[]];
   if (!payment) return bad(res, 'Pending payment receipt not found.', 404);
-  res.json({ receipt: payment.receipt });
+  res.json({ receipt: receiptUrl(req, payment.receipt) });
 }));
 
 app.get('/api/finance/payment-history', auth, financeOnly, wrap(async (req, res) => {
@@ -394,5 +445,16 @@ app.put('/api/admin/users/:id/security', auth, adminOnly, wrap(async (req, res) 
   if (!updated.affectedRows) return bad(res, 'This account role has already changed. Refresh and try again.', 409);
   res.json({ ok: true, security: req.body.security });
 }));
+
+app.use((err, req, res, next) => {
+  if (err && (err.code === 'LIMIT_FILE_SIZE' || err instanceof multer.MulterError)) {
+    return bad(res, 'The image must be 5 MB or smaller.', 413);
+  }
+  if (err.type === 'entity.too.large') return bad(res, 'Request body is too large. Reduce the image size and try again.', 413);
+  if (err instanceof SyntaxError && err.status === 400 && Object.prototype.hasOwnProperty.call(err, 'body')) {
+    return bad(res, 'Request body must be valid JSON.');
+  }
+  next(err);
+});
 
 app.listen(PORT, '0.0.0.0', () => console.log(`SHSRS API running on http://localhost:${PORT}`));

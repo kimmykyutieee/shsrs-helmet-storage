@@ -6,7 +6,8 @@ import { useApp } from '../../shared/hooks/useApp';
 import { scanCabinet } from '../../services/cabinetService';
 import { today, isPast } from '../../shared/utils/date';
 import { GOLD } from '../../shared/constants/theme';
-import { Layout, Btn, LogList } from '../../components/common';
+import { Layout, Btn, LogList } from '../../components';
+import { staticStyles, dynamicStyles } from '../../components/rider.styles';
 
 function Scan() {
   const { db, refresh, mine, me, s, c, wide } = useApp();
@@ -37,41 +38,41 @@ function Scan() {
 
   return (
     <Layout cur={me.security ? 'securityScan' : 'scan'} title={me.security ? 'Camera Scanner' : 'Cabinet Scanner'} subtitle={me.security ? 'Verify a rider reservation QR code at the cabinet.' : 'Scan your QR pass to unlock your slot.'}>
-      <View style={{ flexDirection: wide ? 'row' : 'column', gap: 18, alignItems: 'flex-start' }}>
-        <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%' }}>
+      <View style={dynamicStyles.cabinetScannerView1({ wide })}>
+        <View style={dynamicStyles.cabinetScannerView2({ wide })}>
           <View style={s.card}>
             <Text style={s.cardTitle}>{me.security ? 'Scan a rider QR code' : 'Scan your QR code'}</Text>
-            <Text style={[s.cardSub, { marginBottom: 16 }]}>{me.security ? 'Verify the reservation before assisting with helmet storage or retrieval.' : 'Use the camera, or enter a reservation ID to simulate the cabinet reader.'}</Text>
+            <Text style={[s.cardSub, staticStyles.cabinetScannerText3]}>{me.security ? 'Verify the reservation before assisting with helmet storage or retrieval.' : 'Use the camera, or enter a reservation ID to simulate the cabinet reader.'}</Text>
             {cam ? (
-              <View style={{ height: 280, borderRadius: 16, overflow: 'hidden', marginBottom: 14, borderWidth: 2, borderColor: GOLD }}>
-                <CameraView style={{ flex: 1 }} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onCode} />
+              <View style={dynamicStyles.cabinetScannerView4({ GOLD })}>
+                <CameraView style={staticStyles.cabinetScannerCameraView5} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onCode} />
               </View>
             ) : null}
             <Btn full icon={cam ? 'close' : 'camera-outline'} label={cam ? 'Close camera' : 'Scan with camera'} onPress={() => (cam ? setCam(false) : openCam())} />
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 18 }}>
-              <View style={{ flex: 1, height: 1, backgroundColor: c.line }} /><Text style={{ color: c.muted, fontSize: 12.5, fontWeight: '600' }}>OR ENTER MANUALLY</Text><View style={{ flex: 1, height: 1, backgroundColor: c.line }} />
+            <View style={staticStyles.cabinetScannerView6}>
+              <View style={dynamicStyles.cabinetScannerView7({ c })} /><Text style={dynamicStyles.cabinetScannerText8({ c })}>OR ENTER MANUALLY</Text><View style={dynamicStyles.cabinetScannerView7({ c })} />
             </View>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TextInput style={[s.input, { flex: 1 }]} placeholder="Reservation ID or QR text" placeholderTextColor={c.muted} value={v} onChangeText={setV} autoCapitalize="none" onSubmitEditing={() => doScan(v)} />
+            <View style={staticStyles.cabinetScannerView10}>
+              <TextInput style={[s.input, staticStyles.cabinetScannerCameraView5]} placeholder="Reservation ID or QR text" placeholderTextColor={c.muted} value={v} onChangeText={setV} autoCapitalize="none" onSubmitEditing={() => doScan(v)} />
               <Btn variant="soft" icon="scan-outline" label="Scan" onPress={() => doScan(v)} />
             </View>
             {up.length ? (
-              <View style={[s.row, { marginTop: 12 }]}>
+              <View style={[s.row, staticStyles.cabinetScannerView12]}>
                 {up.map((r) => <Btn key={r.id} small variant="outline" label={`#${r.id} · Slot ${r.slot}`} onPress={() => { setV(String(r.id)); doScan(r.id); }} />)}
               </View>
             ) : null}
             {res ? (
-              <View style={{ marginTop: 20, padding: 20, borderRadius: 16, backgroundColor: res.ok ? c.okBg : c.badBg, alignItems: 'center', gap: 4 }}>
+              <View style={dynamicStyles.cabinetScannerView13({ c, res })}>
                 <Ionicons name={res.ok ? 'checkmark-circle' : 'close-circle'} size={44} color={res.ok ? c.ok : c.bad} />
-                <Text style={{ color: res.ok ? c.ok : c.bad, fontWeight: '800', fontSize: 17 }}>{res.title}</Text>
-                <Text style={[s.muted, { textAlign: 'center', color: res.ok ? c.ok : c.bad }]}>{res.msg}</Text>
+                <Text style={dynamicStyles.cabinetScannerText14({ c, res })}>{res.title}</Text>
+                <Text style={[s.muted, dynamicStyles.cabinetScannerText15({ c, res })]}>{res.msg}</Text>
               </View>
             ) : null}
           </View>
         </View>
         {!me.security ? (
-          <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%' }}>
-            <View style={s.card}><Text style={s.cardTitle}>Cabinet activity</Text><Text style={[s.cardSub, { marginBottom: 6 }]}>Your store and retrieve history.</Text><LogList list={log} /></View>
+          <View style={dynamicStyles.cabinetScannerView2({ wide })}>
+            <View style={s.card}><Text style={s.cardTitle}>Cabinet activity</Text><Text style={[s.cardSub, staticStyles.cabinetScannerText17]}>Your store and retrieve history.</Text><LogList list={log} /></View>
           </View>
         ) : null}
       </View>

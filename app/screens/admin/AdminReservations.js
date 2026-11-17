@@ -5,7 +5,8 @@ import { cancelAnyReservation } from '../../services/reservationService';
 import { isPast, fd, ft } from '../../shared/utils/date';
 import { shareText, confirmBox } from '../../shared/utils/actions';
 import { WEB } from '../../shared/constants/theme';
-import { Layout, Btn, Tag } from '../../components/common';
+import { Layout, Btn, Tag } from '../../components';
+import { staticStyles, dynamicStyles } from '../../components/admin.styles';
 
 function AdminReservations() {
   const { db, refresh, toast, s, c } = useApp();
@@ -34,16 +35,16 @@ function AdminReservations() {
   return (
     <Layout cur="adminReservations" title="Reservations" subtitle="Review and manage reservations.">
       <View style={s.card}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 10 }}>
+        <View style={staticStyles.adminReservationsView1}>
           <View><Text style={s.cardTitle}>All reservations</Text><Text style={s.cardSub}>{reservations.length} total</Text></View>
           <Btn small variant="outline" icon="download-outline" label="Export CSV" onPress={exportCSV} />
         </View>
         {reservations.length ? reservations.map((reservation, index) => (
-          <View key={reservation.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: index === reservations.length - 1 ? 0 : 1, borderColor: c.line }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: c.text, fontWeight: '700' }}>Slot {reservation.slot} · {userName(reservation.uid)} <Text style={{ color: c.muted, fontWeight: '500' }}>#{reservation.id}</Text></Text>
+          <View key={reservation.id} style={dynamicStyles.adminReservationsView2({ c, index, reservations })}>
+            <View style={staticStyles.adminReservationsView3}>
+              <Text style={dynamicStyles.adminReservationsText4({ c })}>Slot {reservation.slot} · {userName(reservation.uid)} <Text style={dynamicStyles.adminReservationsText5({ c })}>#{reservation.id}</Text></Text>
               <Text style={s.muted}>{fd(reservation.date)} · {ft(reservation.time)}</Text>
-              <View style={[s.row, { marginTop: 6 }]}>
+              <View style={[s.row, staticStyles.adminReservationsView6]}>
                 {reservation.stored ? <Tag kind="gold" text="Stored" /> : null}
                 <Tag kind={isPast(reservation) ? 'mute' : 'ok'} text={isPast(reservation) ? 'Completed' : 'Upcoming'} />
               </View>

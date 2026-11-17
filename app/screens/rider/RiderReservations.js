@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Image } from 'react-native';
+import { View, Text, TextInput, Image, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../../shared/hooks/useApp';
@@ -9,7 +9,10 @@ import { dt, fd, ft, isPast, esc } from '../../shared/utils/date';
 import { sharePdf, confirmBox } from '../../shared/utils/actions';
 import { PAYMENT_AMOUNT, PAYMENT_CURRENCY, PAYMENT_STATUS_LABELS } from '../../shared/constants/config';
 import { GOLD } from '../../shared/constants/theme';
-import { Layout, SlotGrid, DateTimeFields, Btn, Tag, InfoModal, IconBox } from '../../components/common';
+import { Layout, SlotGrid, DateTimeFields, Btn, Tag, InfoModal, IconBox } from '../../components';
+import { staticStyles, dynamicStyles, riderExportStyles } from '../../components/rider.styles';
+
+const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
 
 function Reservations({ mode = 'booking' }) {
   const { db, refresh, me, mine, nav, toast, s, c, wide } = useApp();
@@ -21,6 +24,7 @@ function Reservations({ mode = 'booking' }) {
   const [nd, setNd] = useState(''); const [nt, setNt] = useState(''); const [er3, setEr3] = useState('');
   const [payFor, setPayFor] = useState(null);
   const [receipt, setReceipt] = useState('');
+  const [receiptFile, setReceiptFile] = useState(null);
   const [paymentError, setPaymentError] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
 
@@ -40,29 +44,50 @@ function Reservations({ mode = 'booking' }) {
       await refresh();
       toast(`Slot ${eff} reserved for ${fd(rd)}.`);
       setSel(0); setRd(''); setRt(''); setEr('');
-      setPayFor(r.id); setReceipt(''); setPaymentError('');
+      setPayFor(r.id); setReceipt(''); setReceiptFile(null); setPaymentError('');
     } catch (x) { setEr(x.message); refresh().catch(() => {}); }
   };
 
   const pickReceipt = async () => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.6, base64: true });
-      if (result.canceled || !result.assets?.[0]?.base64) return;
-      const type = result.assets[0].mimeType || 'image/jpeg';
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(type)) return setPaymentError('Choose a JPG, PNG, or WebP receipt image.');
-      setReceipt(`data:${type};base64,${result.assets[0].base64}`);
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false });
+      const asset = result?.assets?.[0];
+      if (!asset || result.canceled) return;
+      let file;
+      if (Platform.OS === 'web') {
+        const response = await fetch(asset.uri);
+        if (!response.ok) throw new Error('Could not read the selected image.');
+        const blob = await response.blob();
+        if (blob.size > MAX_RECEIPT_BYTES) return setPaymentError('The image must be 5 MB or smaller.');
+        if (!blob.size) return setPaymentError('Choose a non-empty image file.');
+        file = {
+          file: blob,
+          name: asset.fileName || `payment-proof-${Date.now()}`,
+          type: blob.type || asset.mimeType || 'application/octet-stream',
+        };
+      } else {
+        if (asset.fileSize > MAX_RECEIPT_BYTES) return setPaymentError('The image must be 5 MB or smaller.');
+        file = {
+          uri: asset.uri,
+          name: asset.fileName || `payment-proof-${Date.now()}`,
+          type: asset.mimeType || 'application/octet-stream',
+        };
+      }
+      setReceiptFile(file);
+      setReceipt(asset.uri);
       setPaymentError('');
     } catch (x) { setPaymentError(x.message); }
   };
 
-  const submitPayment = async () => {
-    if (!receipt) return setPaymentError('Upload a receipt image.');
+  const handleSubmitPayment = async () => {
+    if (!receiptFile && !receipt) return setPaymentError('Upload a receipt image.');
     setPaymentBusy(true); setPaymentError('');
     try {
-      await submitPayment(payFor, receipt);
-      await refresh();
-      setPayFor(null); setReceipt('');
+      await submitPayment(payFor, receiptFile || receipt);
+      setPayFor(null); setReceipt(''); setReceiptFile(null);
       toast('Payment submitted for Finance review.');
+      try { await refresh(); }
+      catch (x) { toast(`Payment was submitted, but reservation details could not refresh: ${x.message}`); }
     } catch (x) { setPaymentError(x.message); }
     setPaymentBusy(false);
   };
@@ -82,36 +107,36 @@ function Reservations({ mode = 'booking' }) {
   const pdf = async () => {
     const r = mine();
     if (!r.length) return toast('No reservations to export.');
-    const td = 'style="padding:10px;border-bottom:1px solid #e3e8f2"';
-    const html = `<html><body style="font-family:Helvetica,Arial;padding:32px;color:#0f172a"><div style="border-bottom:3px solid #d4a017;padding-bottom:12px;margin-bottom:18px"><h2 style="margin:0;color:#0b1b3a">Helmet Reservation Storage System</h2><p style="margin:6px 0 0;color:#64748b">Reservations for ${esc(me.name)} (${esc(me.email)}) · Generated ${esc(new Date().toLocaleString())}</p></div><table style="width:100%;border-collapse:collapse"><thead><tr>${['ID', 'Slot', 'Date', 'Time', 'Status'].map((h) => `<th style="text-align:left;padding:10px;background:#0b1b3a;color:#fff">${h}</th>`).join('')}</tr></thead><tbody>${r.map((x) => `<tr><td ${td}>#${x.id}</td><td ${td}>Slot ${x.slot}</td><td ${td}>${fd(x.date)}</td><td ${td}>${ft(x.time)}</td><td ${td}>${isPast(x) ? 'Completed' : 'Upcoming'}</td></tr>`).join('')}</tbody></table></body></html>`;
+    const td = riderExportStyles.tableCell;
+    const html = `<html><body ${riderExportStyles.reservationBody}><div ${riderExportStyles.reservationHeader}><h2 ${riderExportStyles.reservationTitle}>Helmet Reservation Storage System</h2><p ${riderExportStyles.reservationMeta}>Reservations for ${esc(me.name)} (${esc(me.email)}) · Generated ${esc(new Date().toLocaleString())}</p></div><table ${riderExportStyles.reservationTable}><thead><tr>${['ID', 'Slot', 'Date', 'Time', 'Status'].map((h) => `<th ${riderExportStyles.reservationHeading}>${h}</th>`).join('')}</tr></thead><tbody>${r.map((x) => `<tr><td ${td}>#${x.id}</td><td ${td}>Slot ${x.slot}</td><td ${td}>${fd(x.date)}</td><td ${td}>${ft(x.time)}</td><td ${td}>${isPast(x) ? 'Completed' : 'Upcoming'}</td></tr>`).join('')}</tbody></table></body></html>`;
     try { await sharePdf(html, toast); } catch (_e) { toast('Could not create the PDF.'); }
   };
 
   return (
     <Layout cur={mode === 'mine' ? 'myReservations' : 'reservations'} title={mode === 'mine' ? 'My Reservations' : 'Reservation'} subtitle={mode === 'mine' ? 'Review and manage your reservations.' : 'Book a cabinet slot.'}>
-      <View style={{ flexDirection: wide ? 'row' : 'column', gap: 18, alignItems: 'flex-start' }}>
-        {mode !== 'mine' ? <View style={{ width: wide ? 440 : '100%' }}>
+      <View style={dynamicStyles.cabinetScannerView1({ wide })}>
+        {mode !== 'mine' ? <View style={dynamicStyles.riderReservationsView2({ wide })}>
           <View style={s.card}>
             <Text style={s.cardTitle}>1 · Select a slot</Text>
-            <Text style={[s.cardSub, { marginBottom: 16 }]}>Choose any available cabinet slot.</Text>
+            <Text style={[s.cardSub, staticStyles.cabinetScannerText3]}>Choose any available cabinet slot.</Text>
             <SlotGrid taken={taken} blocked={db.blocked} sel={eff} onSel={setSel} />
             <Text style={s.cardTitle}>2 · Pick date &amp; time</Text>
-            <Text style={[s.cardSub, { marginBottom: 12 }]}>Availability updates for the date you choose.</Text>
+            <Text style={[s.cardSub, staticStyles.riderReservationsText4]}>Availability updates for the date you choose.</Text>
             <DateTimeFields date={rd} time={rt} onDate={setRd} onTime={setRt} />
-            {er ? <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: c.badBg, padding: 12, borderRadius: 12, marginTop: 14 }}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={{ color: c.bad, flex: 1, fontWeight: '600' }}>{er}</Text></View> : null}
-            <View style={{ marginTop: 18 }}><Btn full icon="checkmark-circle-outline" label="Confirm booking" onPress={book} /></View>
+            {er ? <View style={dynamicStyles.riderReservationsView5({ c })}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={dynamicStyles.riderReservationsText6({ c })}>{er}</Text></View> : null}
+            <View style={staticStyles.riderReservationsView7}><Btn full icon="checkmark-circle-outline" label="Confirm booking" onPress={book} /></View>
           </View>
         </View> : null}
-        {mode !== 'booking' ? <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%', minWidth: 0 }}>
+        {mode !== 'booking' ? <View style={dynamicStyles.riderReservationsView8({ wide })}>
           <View style={s.card}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 10 }}>
+            <View style={staticStyles.riderReservationsView9}>
               <View><Text style={s.cardTitle}>My Reservations</Text><Text style={s.cardSub}>{rows.length} shown</Text></View>
               <Btn small variant="outline" icon="download-outline" label="PDF" onPress={pdf} />
             </View>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
-              <View style={{ flex: 1, justifyContent: 'center' }}>
-                <Ionicons name="search-outline" size={17} color={c.muted} style={{ position: 'absolute', left: 13, zIndex: 1 }} />
-                <TextInput style={[s.input, { paddingLeft: 38 }]} placeholder="Search slot or date…" placeholderTextColor={c.muted} value={qi} onChangeText={setQi} onSubmitEditing={() => setQ(qi)} returnKeyType="search" />
+            <View style={staticStyles.riderReservationsView10}>
+              <View style={staticStyles.riderReservationsView11}>
+                <Ionicons name="search-outline" size={17} color={c.muted} style={staticStyles.riderReservationsIonicons12} />
+                <TextInput style={[s.input, staticStyles.riderReservationsTextInput13]} placeholder="Search slot or date…" placeholderTextColor={c.muted} value={qi} onChangeText={setQi} onSubmitEditing={() => setQ(qi)} returnKeyType="search" />
               </View>
               <Btn variant="soft" label="Search" onPress={() => setQ(qi)} />
             </View>
@@ -119,11 +144,11 @@ function Reservations({ mode = 'booking' }) {
               const payment = paymentFor(r.id);
               const canOpenQr = r.status === 'Confirmed' && payment?.status === 'Verified';
               return (
-              <View key={r.id} style={{ borderWidth: 1, borderColor: c.line, borderRadius: 14, marginBottom: 10, backgroundColor: c.soft, flexDirection: 'row', overflow: 'hidden' }}>
-                <View style={{ width: 5, backgroundColor: isPast(r) ? c.line : GOLD }} />
-                <View style={{ flex: 1, padding: 14 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <Text style={{ color: c.text, fontWeight: '800', fontSize: 16 }}>Slot {r.slot} <Text style={{ color: c.muted, fontWeight: '600', fontSize: 13 }}> #{r.id}</Text></Text>
+              <View key={r.id} style={dynamicStyles.riderReservationsView14({ c })}>
+                <View style={dynamicStyles.riderReservationsView15({ GOLD, c, isPast, r })} />
+                <View style={staticStyles.riderReservationsView16}>
+                  <View style={staticStyles.riderReservationsView17}>
+                    <Text style={dynamicStyles.riderReservationsText18({ c })}>Slot {r.slot} <Text style={dynamicStyles.riderReservationsText19({ c })}> #{r.id}</Text></Text>
                     <View style={s.row}>
                       {r.stored ? <Tag kind="gold" text="Stored" /> : null}
                       <Tag kind={isPast(r) ? 'mute' : 'ok'} text={isPast(r) ? 'Completed' : 'Upcoming'} />
@@ -131,20 +156,20 @@ function Reservations({ mode = 'booking' }) {
                       <Tag kind={payment?.status === 'Verified' ? 'ok' : payment?.status === 'Rejected' ? 'bad' : 'gold'} text={PAYMENT_STATUS_LABELS[payment?.status] || 'Payment required'} />
                     </View>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 14, marginTop: 8, flexWrap: 'wrap' }}>
+                  <View style={staticStyles.riderReservationsView20}>
                     <View style={s.row}><Ionicons name="calendar-outline" size={14} color={c.muted} /><Text style={s.muted}>{fd(r.date)}</Text></View>
                     <View style={s.row}><Ionicons name="time-outline" size={14} color={c.muted} /><Text style={s.muted}>{ft(r.time)}</Text></View>
                   </View>
-                  <View style={[s.row, { marginTop: 12 }]}>
+                  <View style={[s.row, staticStyles.cabinetScannerView12]}>
                     {canOpenQr ? <Btn small variant="outline" icon="qr-code-outline" label="QR" onPress={() => nav('qr', r.id)} /> : null}
-                    {!isPast(r) && r.status !== 'Confirmed' && payment?.status !== 'Pending' ? <Btn small variant="gold" icon="card-outline" label={payment?.status === 'Rejected' ? 'Resubmit payment' : `Pay ${PAYMENT_CURRENCY} ${PAYMENT_AMOUNT.toFixed(2)}`} onPress={() => { setPayFor(r.id); setReceipt(''); setPaymentError(''); }} /> : null}
+                    {!isPast(r) && r.status !== 'Confirmed' && payment?.status !== 'Pending' ? <Btn small variant="gold" icon="card-outline" label={payment?.status === 'Rejected' ? 'Resubmit payment' : `Pay ${PAYMENT_CURRENCY} ${PAYMENT_AMOUNT.toFixed(2)}`} onPress={() => { setPayFor(r.id); setReceipt(''); setReceiptFile(null); setPaymentError(''); }} /> : null}
                     {!isPast(r) && <Btn small variant="outline" icon="create-outline" label="Reschedule" onPress={() => openEdit(r)} />}
                     <Btn small variant="outline" icon="trash-outline" onPress={() => cancel(r.id)} />
                   </View>
                 </View>
               </View>
             );}) : (
-              <View style={{ alignItems: 'center', padding: 24 }}>
+              <View style={staticStyles.riderReservationsView22}>
                 <IconBox icon="calendar-outline" tone="gold" size={56} />
                 <Text style={s.empty}>{q ? 'No reservations match your search.' : 'No reservations yet.\nPick a slot, date and time to get started.'}</Text>
               </View>
@@ -155,20 +180,20 @@ function Reservations({ mode = 'booking' }) {
 
       <InfoModal visible={!!edit} title={edit ? `Reschedule Slot ${edit.slot}` : ''} onClose={() => setEdit(null)}>
         <DateTimeFields date={nd} time={nt} onDate={setNd} onTime={setNt} />
-        {er3 ? <Text style={[s.err, { marginTop: 10 }]}>{er3}</Text> : null}
-        <View style={{ marginTop: 16 }}><Btn full label="Save changes" onPress={saveEdit} /></View>
+        {er3 ? <Text style={[s.err, staticStyles.riderReservationsText23]}>{er3}</Text> : null}
+        <View style={staticStyles.riderReservationsView24}><Btn full label="Save changes" onPress={saveEdit} /></View>
       </InfoModal>
       <InfoModal visible={!!payFor} title="Submit reservation payment" onClose={() => paymentBusy ? null : setPayFor(null)}>
-        <Text style={[s.cardSub, { marginBottom: 16 }]}>Required amount: {PAYMENT_CURRENCY} {PAYMENT_AMOUNT.toFixed(2)}. Finance must review your receipt before your QR code is released.</Text>
+        <Text style={[s.cardSub, staticStyles.cabinetScannerText3]}>Required amount: {PAYMENT_CURRENCY} {PAYMENT_AMOUNT.toFixed(2)}. Finance must review your receipt before your QR code is released.</Text>
         <Btn variant="outline" icon="image-outline" label={receipt ? 'Replace receipt image' : 'Upload receipt image'} onPress={pickReceipt} />
         {receipt ? (
-          <View style={[s.row, { marginTop: 12, alignItems: 'center' }]}>
-            <Image source={{ uri: receipt }} style={{ width: 120, height: 120, borderRadius: 12 }} />
-            <Btn small variant="outline" icon="trash-outline" label="Remove receipt" onPress={() => { setReceipt(''); setPaymentError(''); }} />
+          <View style={[s.row, staticStyles.riderReservationsView26]}>
+            <Image source={{ uri: receipt }} style={staticStyles.riderReservationsImage27} />
+        <Btn small variant="outline" icon="trash-outline" label="Remove receipt" onPress={() => { setReceipt(''); setReceiptFile(null); setPaymentError(''); }} />
           </View>
         ) : null}
-        {paymentError ? <Text style={[s.err, { marginTop: 12 }]}>{paymentError}</Text> : null}
-        <View style={{ marginTop: 18 }}><Btn full label={paymentBusy ? 'Submitting…' : 'Submit payment'} onPress={paymentBusy ? undefined : submitPayment} /></View>
+        {paymentError ? <Text style={[s.err, staticStyles.cabinetScannerView12]}>{paymentError}</Text> : null}
+        <View style={staticStyles.riderReservationsView7}><Btn full label={paymentBusy ? 'Submitting…' : 'Submit payment'} onPress={paymentBusy ? undefined : handleSubmitPayment} /></View>
       </InfoModal>
     </Layout>
   );

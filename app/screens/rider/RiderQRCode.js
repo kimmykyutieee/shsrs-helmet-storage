@@ -6,7 +6,8 @@ import { getReservationQr } from '../../services/cabinetService';
 import { isPast, fd, ft } from '../../shared/utils/date';
 import { sharePdf, shareText } from '../../shared/utils/actions';
 import { lift, WEB } from '../../shared/constants/theme';
-import { Layout, IconBox, Btn, Gradient, Shield, Tag } from '../../components/common';
+import { Layout, IconBox, Btn, Gradient, Shield, Tag } from '../../components';
+import { staticStyles, dynamicStyles, riderExportStyles } from '../../components/rider.styles';
 
 function QRScreen({ id }) {
   const { db, mine, nav, refresh, toast, s, c } = useApp();
@@ -38,7 +39,7 @@ function QRScreen({ id }) {
         document.body.appendChild(a); a.click(); a.remove();
         return toast('QR code download started.');
       }
-      const html = `<html><body style="font-family:Helvetica,Arial;text-align:center;padding:40px;color:#0f172a"><h2 style="color:#0b1b3a">Helmet Reservation Storage System</h2><img src="data:image/png;base64,${b64}" width="300" height="300"/><h1>Reservation #${x.id}</h1><p>Slot ${x.slot} · ${fd(x.date)} · ${ft(x.time)}</p></body></html>`;
+      const html = `<html><body ${riderExportStyles.qrBody}><h2 ${riderExportStyles.qrTitle}>Helmet Reservation Storage System</h2><img src="data:image/png;base64,${b64}" width="300" height="300"/><h1>Reservation #${x.id}</h1><p>Slot ${x.slot} · ${fd(x.date)} · ${ft(x.time)}</p></body></html>`;
       try { await sharePdf(html, toast); } catch (_e) { toast('Could not save the QR code.'); }
     });
   };
@@ -46,19 +47,19 @@ function QRScreen({ id }) {
     await shareText(`My helmet storage reservation: Slot ${x.slot}, ${fd(x.date)} at ${ft(x.time)} (ID ${x.id}).`, toast, 'Helmet Reservation');
   };
   const Info = ({ label, value: v }) => (
-    <View style={{ flex: 1, minWidth: 90 }}><Text style={{ color: c.muted, fontSize: 11.5, fontWeight: '700', letterSpacing: 0.8 }}>{label}</Text><Text style={{ color: c.text, fontSize: 16, fontWeight: '800', marginTop: 3 }}>{v}</Text></View>
+    <View style={staticStyles.riderQRCodeView1}><Text style={dynamicStyles.riderQRCodeText2({ c })}>{label}</Text><Text style={dynamicStyles.riderQRCodeText3({ c })}>{v}</Text></View>
   );
 
   return (
     <Layout cur="qr" title="QR Code" subtitle="Show this pass at the cabinet scanner.">
       {!x ? (
-        <View style={[s.card, { alignItems: 'center', padding: 36 }]}>
+        <View style={[s.card, staticStyles.riderQRCodeView4]}>
           <IconBox icon="qr-code-outline" tone="gold" size={60} />
           <Text style={s.empty}>You have no reservations yet, so there is no QR code to show.</Text>
           <Btn label="Make a reservation" onPress={() => nav('reservations')} />
         </View>
       ) : !verified ? (
-        <View style={[s.card, { alignItems: 'center', padding: 36 }]}>
+        <View style={[s.card, staticStyles.riderQRCodeView4]}>
           <IconBox icon="card-outline" tone="gold" size={60} />
           <Text style={s.cardTitle}>{payment?.status === 'Rejected' ? 'Payment rejected' : payment?.status === 'Pending' ? 'Pending Verification' : 'Payment required'}</Text>
           <Text style={s.empty}>{payment?.status === 'Rejected' ? 'Submit a new receipt from Reservations. A QR code is unavailable until Finance verifies payment.' : 'Submit the PHP 25.00 payment and wait for Finance verification before accessing your QR code.'}</Text>
@@ -66,41 +67,41 @@ function QRScreen({ id }) {
           <Btn label="Go to reservations" onPress={() => nav('reservations')} />
         </View>
       ) : qrError ? (
-        <View style={[s.card, { alignItems: 'center', padding: 36 }]}>
+        <View style={[s.card, staticStyles.riderQRCodeView4]}>
           <Text style={s.err}>{qrError}</Text>
         </View>
       ) : !value ? (
-        <View style={[s.card, { alignItems: 'center', padding: 36 }]}>
+        <View style={[s.card, staticStyles.riderQRCodeView4]}>
           <ActivityIndicator color={c.gold} />
           <Text style={s.cardSub}>Loading verified QR code…</Text>
         </View>
       ) : (
-        <View style={{ width: '100%', maxWidth: 440, alignSelf: 'center' }}>
-          <View style={{ backgroundColor: c.card, borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: c.line, ...lift(c.dark, true) }}>
-            <View style={{ padding: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' }}>
+        <View style={staticStyles.riderQRCodeView8}>
+          <View style={dynamicStyles.riderQRCodeView9({ c, lift })}>
+            <View style={staticStyles.riderQRCodeView10}>
               <Gradient id="tk" from="#08122b" to="#17397f" />
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Shield size={30} /><View><Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Access Pass</Text><Text style={{ color: '#8fa3cc', fontSize: 12 }}>Helmet Storage</Text></View></View>
+              <View style={staticStyles.riderQRCodeView11}><Shield size={30} /><View><Text style={staticStyles.riderQRCodeText12}>Access Pass</Text><Text style={staticStyles.riderQRCodeText13}>Helmet Storage</Text></View></View>
               <Tag kind={isPast(x) ? 'mute' : 'gold'} text={isPast(x) ? 'COMPLETED' : x.stored ? 'STORED' : 'VALID'} />
             </View>
-            <View style={{ alignItems: 'center', padding: 26 }}>
-              <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 18, borderWidth: 1, borderColor: '#e3e8f2' }}>
+            <View style={staticStyles.riderQRCodeView14}>
+              <View style={staticStyles.riderQRCodeView15}>
                 <QRCode value={value} size={210} getRef={(r2) => (ref.current = r2)} />
               </View>
-              <Text style={{ color: c.muted, marginTop: 14, fontSize: 13 }}>Scan this code at the cabinet to unlock it.</Text>
+              <Text style={dynamicStyles.riderQRCodeText16({ c })}>Scan this code at the cabinet to unlock it.</Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{ width: 14, height: 28, borderTopRightRadius: 14, borderBottomRightRadius: 14, backgroundColor: c.bg, borderWidth: 1, borderLeftWidth: 0, borderColor: c.line }} />
-              <View style={{ flex: 1, borderTopWidth: 2, borderStyle: 'dashed', borderColor: c.line }} />
-              <View style={{ width: 14, height: 28, borderTopLeftRadius: 14, borderBottomLeftRadius: 14, backgroundColor: c.bg, borderWidth: 1, borderRightWidth: 0, borderColor: c.line }} />
+            <View style={staticStyles.riderQRCodeView17}>
+              <View style={dynamicStyles.riderQRCodeView18({ c })} />
+              <View style={dynamicStyles.riderQRCodeView19({ c })} />
+              <View style={dynamicStyles.riderQRCodeView20({ c })} />
             </View>
-            <View style={{ padding: 24 }}>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginBottom: 22 }}>
+            <View style={staticStyles.riderQRCodeView21}>
+              <View style={staticStyles.riderQRCodeView22}>
                 <Info label="RESERVATION" value={`#${x.id}`} /><Info label="SLOT" value={`Slot ${x.slot}`} />
                 <Info label="DATE" value={fd(x.date)} /><Info label="TIME" value={ft(x.time)} />
               </View>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <Btn style={{ flex: 1 }} variant="primary" icon="download-outline" label="Download" onPress={download} />
-                <Btn style={{ flex: 1 }} variant="outline" icon="share-social-outline" label="Share" onPress={share} />
+              <View style={staticStyles.riderQRCodeView23}>
+                <Btn style={staticStyles.cabinetScannerCameraView5} variant="primary" icon="download-outline" label="Download" onPress={download} />
+                <Btn style={staticStyles.cabinetScannerCameraView5} variant="outline" icon="share-social-outline" label="Share" onPress={share} />
               </View>
             </View>
           </View>

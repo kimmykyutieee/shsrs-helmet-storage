@@ -2,7 +2,8 @@ import React from 'react';
 import { Text, View } from 'react-native';
 import { useApp } from '../../shared/hooks/useApp';
 import { toggleSlotMaintenance } from '../../services/cabinetService';
-import { Layout, SlotGrid } from '../../components/common';
+import { Layout, SlotGrid } from '../../components';
+import { staticStyles, dynamicStyles } from '../../components/admin.styles';
 
 function SlotMaintenance() {
   const { db, refresh, toast, s } = useApp();
@@ -15,7 +16,7 @@ function SlotMaintenance() {
     <Layout cur="adminSlots" title="Slot Maintenance" subtitle="Manage cabinet slot availability and maintenance.">
       <View style={s.card}>
         <Text style={s.cardTitle}>Slot maintenance</Text>
-        <Text style={[s.cardSub, { marginBottom: 16 }]}>Tap a slot to block or unblock it. Blocked slots cannot be booked.</Text>
+        <Text style={[s.cardSub, staticStyles.slotMaintenanceText1]}>Tap a slot to block or unblock it. Blocked slots cannot be booked.</Text>
         <SlotGrid admin taken={new Set()} blocked={db.blocked} onAdminTap={toggle} />
       </View>
     </Layout>

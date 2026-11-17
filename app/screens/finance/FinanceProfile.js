@@ -5,9 +5,10 @@ function FinanceProfile({ user, Avatar, c }) {
   return (
     <>
       <Avatar u={user} size={38} />
-      <View><Text style={{ color: c.text, fontWeight: '700' }}>{user.name}</Text><Text style={{ color: c.muted, fontSize: 12 }}>{user.email}</Text></View>
+      <View><Text style={dynamicStyles.financeProfileText1({ c })}>{user.name}</Text><Text style={dynamicStyles.financeProfileText2({ c })}>{user.email}</Text></View>
     </>
   );
 }
 
 export default FinanceProfile;
+import { staticStyles, dynamicStyles } from '../../components/finance.styles';

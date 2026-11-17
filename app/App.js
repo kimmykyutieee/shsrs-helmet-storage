@@ -7,8 +7,9 @@ import { TOKEN_KEY, THEME_KEY } from './shared/constants/config';
 import { NAVY, GOLD, LIGHT, DARK, PROTECTED, lift } from './shared/constants/theme';
 import { api, getToken, setToken } from './services/api';
 import { Ctx } from './shared/hooks/useApp';
-import { mk } from './styles/theme';
-import { Shield, InfoModal } from './components/common';
+import { mk } from './components/theme.styles';
+import { Shield, InfoModal } from './components';
+import { staticStyles, dynamicStyles } from './components/app.styles';
 import RootNavigator from './navigation/RootNavigator';
 
 const EMPTY = { me: null, users: [], res: [], slotReservations: [], slots: [], blocked: [], log: [], payments: [] };
@@ -51,20 +52,20 @@ function Root() {
 
   if (netErr) {
     return (
-      <View style={{ flex: 1, backgroundColor: NAVY, justifyContent: 'center', alignItems: 'center', padding: 28 }}>
-        <View style={{ maxWidth: 460, width: '100%', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 20, padding: 26, gap: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' }}>
+      <View style={dynamicStyles.appView1({ NAVY })}>
+        <View style={staticStyles.appView2}>
           <Shield size={44} />
-          <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>{netErr.startsWith('Cannot reach') ? 'Server not reachable' : 'Database problem'}</Text>
-          <Text style={{ color: '#fca5a5' }}>{netErr}</Text>
-          <Text style={{ color: '#9fb1d6', lineHeight: 21 }}>{netErr.startsWith('Cannot reach')
+          <Text style={staticStyles.appText3}>{netErr.startsWith('Cannot reach') ? 'Server not reachable' : 'Database problem'}</Text>
+          <Text style={staticStyles.appText4}>{netErr}</Text>
+          <Text style={staticStyles.appText5}>{netErr.startsWith('Cannot reach')
             ? "Make sure `npm start` is running in the server folder (and XAMPP MySQL is on). On a phone, PC_IP in App.js must be your PC's Wi-Fi address."
             : 'The API is running but MySQL is not ready. Start MySQL in XAMPP and import schema.sql in phpMyAdmin, then press Retry.'}</Text>
-          <TouchableOpacity onPress={boot} style={{ backgroundColor: GOLD, borderRadius: 12, paddingVertical: 13, alignItems: 'center' }}><Text style={{ fontWeight: '800', color: '#1a1304' }}>Retry</Text></TouchableOpacity>
+          <TouchableOpacity onPress={boot} style={dynamicStyles.appTouchableOpacity6({ GOLD })}><Text style={staticStyles.appText7}>Retry</Text></TouchableOpacity>
         </View>
       </View>
     );
   }
-  if (!db) return <View style={{ flex: 1, backgroundColor: NAVY, justifyContent: 'center', alignItems: 'center', gap: 16 }}><Shield size={56} /><ActivityIndicator color={GOLD} /></View>;
+  if (!db) return <View style={dynamicStyles.appView8({ NAVY })}><Shield size={56} /><ActivityIndicator color={GOLD} /></View>;
 
   const nav = (n, arg = null) => setRoute({ n, arg });
   const toast = (m) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(''), 2800); };
@@ -110,25 +111,25 @@ function Root() {
       <RootNavigator route={{ n, arg: route.arg }} me={me} />
       <InfoModal visible={info === 'manual'} title="System manual" onClose={() => setInfo(null)}>
         {manual.map(([i, t, d]) => (
-          <View key={i} style={{ flexDirection: 'row', gap: 12, marginBottom: 14 }}>
-            <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: c.onPrimary, fontWeight: '800' }}>{i}</Text></View>
-            <View style={{ flex: 1 }}><Text style={{ color: c.text, fontWeight: '700' }}>{t}</Text><Text style={[s.muted, { marginTop: 2, lineHeight: 20 }]}>{d}</Text></View>
+          <View key={i} style={staticStyles.appView9}>
+            <View style={dynamicStyles.appView10({ c })}><Text style={dynamicStyles.appText11({ c })}>{i}</Text></View>
+            <View style={staticStyles.appView12}><Text style={dynamicStyles.appText13({ c })}>{t}</Text><Text style={[s.muted, staticStyles.appText14]}>{d}</Text></View>
           </View>
         ))}
       </InfoModal>
       <InfoModal visible={info === 'tutorial'} title="Video tutorials" onClose={() => setInfo(null)}>
         {['Creating your account', 'Booking a storage slot', 'Finding and sharing your QR code', 'Unlocking the cabinet'].map((t, i) => (
-          <View key={t} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: 1, borderColor: c.line }}>
-            <Ionicons name="play-circle-outline" size={24} color={c.gold} /><Text style={{ color: c.text, fontWeight: '600' }}>{i + 1}. {t}</Text>
+          <View key={t} style={dynamicStyles.appView15({ c })}>
+            <Ionicons name="play-circle-outline" size={24} color={c.gold} /><Text style={dynamicStyles.appText16({ c })}>{i + 1}. {t}</Text>
           </View>
         ))}
-        <Text style={[s.muted, { marginTop: 14 }]}>Open the Access Guide after logging in for the full step-by-step walkthrough.</Text>
+        <Text style={[s.muted, staticStyles.appText17]}>Open the Access Guide after logging in for the full step-by-step walkthrough.</Text>
       </InfoModal>
       {msg ? (
-        <View pointerEvents="none" style={{ position: 'absolute', bottom: wide ? 36 : 96, left: 20, right: 20, alignItems: 'center' }}>
-          <View style={{ backgroundColor: NAVY, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, paddingVertical: 13, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(212,160,23,0.5)', ...lift(true, true) }}>
+        <View pointerEvents="none" style={dynamicStyles.appView18({ wide })}>
+          <View style={dynamicStyles.appView19({ NAVY, lift })}>
             <Ionicons name="checkmark-circle" size={18} color={GOLD} />
-            <Text style={{ color: '#fff', fontWeight: '600' }}>{msg}</Text>
+            <Text style={staticStyles.appText20}>{msg}</Text>
           </View>
         </View>
       ) : null}

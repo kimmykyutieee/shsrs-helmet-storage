@@ -66,6 +66,7 @@
     "mime-db": "^1.52.0",
     "mime-types": "^2.1.35",
     "ms": "^2.0.0",
+    "multer": "^2.5.0",
     "mysql2": "^3.24.6",
     "named-placeholders": "^1.1.6",
     "negotiator": "^0.6.3",
@@ -84,6 +85,7 @@
     "send": "^0.19.2",
     "serve-static": "^1.16.3",
     "setprototypeof": "^1.2.0",
+    "sharp": "^0.35.5",
     "side-channel": "^1.1.1",
     "side-channel-list": "^1.0.1",
     "side-channel-map": "^1.0.1",
@@ -98,7 +100,7 @@
     "vary": "^1.1.2"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "start": "node server.js"
   },
   "keywords": [],

@@ -5,7 +5,8 @@ import { useApp } from '../../shared/hooks/useApp';
 import { updateProfile, updateProfilePhoto, updatePassword, deleteAccount } from '../../services/userService';
 import { okMail } from '../../shared/utils/date';
 import { confirmBox } from '../../shared/utils/actions';
-import { Layout, Avatar, Btn, Field } from '../../components/common';
+import { Layout, Avatar, Btn, Field } from '../../components';
+import { staticStyles, dynamicStyles } from '../../components/profile.styles';
 
 function Profile() {
   const { me, refresh, logout, toast, s, c, wide } = useApp();
@@ -39,14 +40,14 @@ function Profile() {
 
   return (
     <Layout cur="profile" title="Profile" subtitle="Manage your account details and security.">
-      <View style={{ flexDirection: wide ? 'row' : 'column', gap: 18, alignItems: 'flex-start' }}>
-        <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%' }}>
+      <View style={dynamicStyles.profileView1({ wide })}>
+        <View style={dynamicStyles.profileView2({ wide })}>
           <View style={s.card}>
             <Text style={s.cardTitle}>Profile information</Text>
-            <Text style={[s.cardSub, { marginBottom: 18 }]}>Update your account&apos;s profile information and email address.</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18, marginBottom: 20 }}>
+            <Text style={[s.cardSub, staticStyles.profileText3]}>Update your account&apos;s profile information and email address.</Text>
+            <View style={staticStyles.profileView4}>
               <Avatar u={me} size={84} ring />
-              <View style={{ gap: 8 }}>
+              <View style={staticStyles.profileView5}>
                 <Btn small variant="outline" icon="image-outline" label="Upload photo" onPress={pick} />
                 {me.photo ? <Btn small variant="outline" label="Remove photo" onPress={rm} /> : null}
               </View>
@@ -58,19 +59,19 @@ function Profile() {
             <Btn label="Save changes" onPress={saveProf} />
           </View>
         </View>
-        <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%' }}>
+        <View style={dynamicStyles.profileView2({ wide })}>
           <View style={s.card}>
             <Text style={s.cardTitle}>Update password</Text>
-            <Text style={[s.cardSub, { marginBottom: 18 }]}>Use a long, random password to stay secure.</Text>
+            <Text style={[s.cardSub, staticStyles.profileText3]}>Use a long, random password to stay secure.</Text>
             <Field label="Current password" icon="lock-closed-outline" secure value={cp} onChangeText={setCp} />
             <Field label="New password" icon="key-outline" secure value={np} onChangeText={setNp} />
             <Field label="Confirm password" icon="key-outline" secure value={cf} onChangeText={setCf} />
             {er2 ? <Text style={s.err}>{er2}</Text> : null}
             <Btn label="Update password" onPress={savePw} />
           </View>
-          <View style={[s.card, { borderColor: c.bad }]}>
-            <Text style={[s.cardTitle, { color: c.bad }]}>Delete account</Text>
-            <Text style={[s.cardSub, { marginBottom: 16 }]}>Permanently deletes your account and all your reservations.</Text>
+          <View style={[s.card, dynamicStyles.profileView8({ c })]}>
+            <Text style={[s.cardTitle, dynamicStyles.profileText9({ c })]}>Delete account</Text>
+            <Text style={[s.cardSub, staticStyles.profileText10]}>Permanently deletes your account and all your reservations.</Text>
             <Btn variant="danger" icon="trash-outline" label="Delete account" onPress={del} />
           </View>
         </View>

@@ -3,7 +3,8 @@ import { Text, View } from 'react-native';
 import { useApp } from '../../shared/hooks/useApp';
 import { setFinanceRole, setSecurityRole } from '../../services/userService';
 import { confirmBox } from '../../shared/utils/actions';
-import { Layout, Avatar, Btn, Tag } from '../../components/common';
+import { Layout, Avatar, Btn, Tag } from '../../components';
+import { staticStyles, dynamicStyles } from '../../components/admin.styles';
 
 function AdminUsers() {
   const { db, refresh, toast, s, c } = useApp();
@@ -33,14 +34,14 @@ function AdminUsers() {
     <Layout cur="adminUsers" title="Users" subtitle="Manage Finance and Security role access.">
       <View style={s.card}>
         <Text style={s.cardTitle}>Users</Text>
-        <Text style={[s.cardSub, { marginBottom: 6 }]}>{db.users.length} registered</Text>
+        <Text style={[s.cardSub, staticStyles.adminUsersText1]}>{db.users.length} registered</Text>
         {db.users.map((user, index) => (
-          <View key={user.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: index === db.users.length - 1 ? 0 : 1, borderColor: c.line }}>
+          <View key={user.id} style={dynamicStyles.adminUsersView2({ c, db, index })}>
             <Avatar u={user} size={38} />
-            <View style={{ flex: 1 }}><Text style={{ color: c.text, fontWeight: '600' }}>{user.name}</Text><Text style={s.muted}>{user.email}</Text></View>
+            <View style={staticStyles.adminReservationsView3}><Text style={dynamicStyles.adminUsersText4({ c })}>{user.name}</Text><Text style={s.muted}>{user.email}</Text></View>
             <Tag kind={user.admin || user.finance || user.security ? 'gold' : 'mute'} text={user.admin ? 'Admin' : user.finance ? 'Finance' : user.security ? 'Security' : 'Rider'} />
             {!user.admin && !user.finance && !user.security ? (
-              <View style={[s.row, { justifyContent: 'flex-end' }]}>
+              <View style={[s.row, staticStyles.adminUsersView5]}>
                 <Btn small variant="outline" label="Make Finance" onPress={busyUser === user.id ? undefined : () => updateRole(user, 'finance')} />
                 <Btn small variant="outline" label="Make Security" onPress={busyUser === user.id ? undefined : () => updateRole(user, 'security')} />
               </View>

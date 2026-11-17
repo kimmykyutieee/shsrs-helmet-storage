@@ -152,7 +152,7 @@ Without demo data, registration creates Rider accounts only. A trusted database 
 2. Log in as Admin and select **Make Finance** or **Make Security** for that account in the Users list. An account must be removed from its current role before it can be assigned the other one.
 3. Log in using that account to open the role-specific dashboard.
 
-Students submit a receipt image with each reservation. Finance can approve or reject pending payments; only approved payments release the reservation QR code. SMS notifications are not sent because no SMS provider is configured.
+Students submit an image with each reservation. The server verifies that the uploaded file is a readable, supported image no larger than 5 MB, stores the original file under the uploads directory, and records its path in the payment record. It does not evaluate image contents; Finance manually reviews each pending submission and approves or rejects it. Only approved payments release the reservation QR code. SMS notifications are not sent because no SMS provider is configured.
 
 ---
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import RoleHeader from '../common/RoleHeader';
+import RoleHeader from './RoleHeader';
 
 function FinanceHeader(props) {
   return <RoleHeader {...props} />;
