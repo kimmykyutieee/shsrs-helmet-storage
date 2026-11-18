@@ -51,7 +51,12 @@ function Btn({ label, onPress, icon, variant = 'primary', small, style, full }) 
   const { c } = useApp();
   const V = buttonVariant(c, variant);
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [dynamicStyles.indexPressable1({ V, full, pressed, small }), style]}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [dynamicStyles.indexPressable1({ V, full, pressed, small }), style]}
+    >
       {icon ? <Ionicons name={icon} size={small ? 16 : 18} color={V.fg} /> : null}
       {label ? <Text style={dynamicStyles.indexText2({ V, small })}>{label}</Text> : null}
     </Pressable>
