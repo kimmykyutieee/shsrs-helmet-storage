@@ -11,6 +11,7 @@ const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
 const { MAX_RECEIPT_BYTES, validateReceiptImage } = require('./receiptImage');
+const { calculateSchedule, timeMinutes } = require('./reservationSchedule');
 // Load server/.env
 const envFile = path.join(__dirname, '.env');
 if (fs.existsSync(envFile)) {
@@ -26,7 +27,6 @@ if (fs.existsSync(envFile)) {
 
 const PORT = process.env.PORT || 3000;
 const SECRET = process.env.JWT_SECRET || 'change-this-secret';
-const PAYMENT_AMOUNT = '25.00';
 const DEVICE_ID = process.env.ESP32_DEVICE_ID || 'cabinet-esp32-01';
 const DEVICE_TOKEN = process.env.ESP32_DEVICE_TOKEN || '';
 const QR_SECRET = process.env.QR_SECRET || SECRET;
@@ -112,6 +112,108 @@ const riderOrAdmin = (req, res, next) => (!req.finance && !req.security ? next()
 const scannerAccess = (req, res, next) => (req.admin || req.security ? next() : bad(res, 'Security or Admin access only.', 403));
 const token = (uid) => jwt.sign({ uid }, SECRET, { expiresIn: '30d' });
 
+const createNotification = async (connection, { userId, title, message, type, reservationId = null, refundId = null }) => {
+  if (type === 'REFUND_STATUS') {
+    await connection.query(
+      `INSERT INTO notifications
+       (user_id,title,message,type,reservation_id,refund_id)
+       VALUES (?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE title=VALUES(title),message=VALUES(message),refund_id=VALUES(refund_id),created_at=CURRENT_TIMESTAMP,is_read=0`,
+      [userId, title, message, type, reservationId, refundId],
+    );
+    return;
+  }
+  await connection.query(
+    `INSERT IGNORE INTO notifications
+     (user_id,title,message,type,reservation_id,refund_id)
+     VALUES (?,?,?,?,?,?)`,
+    [userId, title, message, type, reservationId, refundId],
+  );
+};
+
+const processReservationAutomation = async () => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [expired] = await connection.query(
+      `SELECT r.id,r.user_id,r.res_date,r.res_time,r.grace_deadline,r.total_price,
+              COALESCE(
+                (SELECT p.amount FROM payments p WHERE p.reservation_id=r.id AND p.status='Verified' ORDER BY p.id DESC LIMIT 1),
+                r.total_price
+              ) AS original_amount
+       FROM reservations r
+       WHERE r.status='Confirmed'
+         AND r.stored=0
+         AND r.grace_deadline IS NOT NULL
+         AND r.grace_deadline <= NOW()
+       FOR UPDATE`,
+    );
+    for (const r of expired) {
+      await connection.query("UPDATE reservations SET status='Expired' WHERE id=? AND status='Confirmed'", [r.id]);
+      const original = Number(r.original_amount || r.total_price || 0);
+      const refundAmount = original * 0.5;
+      const [insert] = await connection.query(
+        `INSERT IGNORE INTO refunds
+         (reservation_id,user_id,original_payment_amount,refund_percentage,refund_amount,
+          non_refundable_amount,status,expiration_timestamp)
+         VALUES (?,?,?,50.00,?,?, 'PENDING',NOW())`,
+        [r.id, r.user_id, original, refundAmount, original - refundAmount],
+      );
+      if (insert.affectedRows) {
+        await createNotification(connection, {
+          userId: r.user_id,
+          title: 'Refund request created',
+          message: 'Your reservation expired without helmet storage. A 50% refund request is now pending Finance review.',
+          type: 'REFUND_STATUS',
+          reservationId: r.id,
+          refundId: insert.insertId,
+        });
+      }
+    }
+
+    const [timed] = await connection.query(
+      `SELECT r.id,r.user_id,r.res_date,r.res_time,r.end_time,r.status,
+              p.status AS payment_status
+       FROM reservations r
+       LEFT JOIN payments p ON p.reservation_id=r.id AND p.status='Verified'
+       WHERE r.status IN ('Confirmed','Active','Used')
+         AND p.status='Verified'
+       ORDER BY r.id`,
+    );
+    for (const r of timed) {
+      const start = dt(String(r.res_date).slice(0, 10), String(r.res_time).slice(0, 5)).getTime();
+      const endTime = r.end_time || '21:00';
+      const end = dt(String(r.res_date).slice(0, 10), String(endTime).slice(0, 5)).getTime();
+      const now = Date.now();
+      if (start - now <= 10 * 60000 && start > now) {
+        await createNotification(connection, {
+          userId: r.user_id,
+          title: 'Reservation starting soon',
+          message: 'Your helmet locker reservation will start in 10 minutes. Please prepare your QR code and arrive on time.',
+          type: 'RESERVATION_STARTING',
+          reservationId: r.id,
+        });
+      }
+      if (end - now <= 10 * 60000 && end > now) {
+        await createNotification(connection, {
+          userId: r.user_id,
+          title: 'Reservation ending soon',
+          message: 'Your helmet locker reservation will end in 10 minutes. Please make sure to complete your locker activities before your reservation expires.',
+          type: 'RESERVATION_ENDING',
+          reservationId: r.id,
+        });
+      }
+    }
+    await connection.commit();
+  } catch (e) {
+    await connection.rollback();
+    console.error('Reservation automation failed:', e);
+  } finally {
+    connection.release();
+  }
+};
+
 app.get('/api/health', wrap(async (req, res) => {
   await pool.query('SELECT 1 FROM slots LIMIT 1');   // proves MySQL is up AND schema.sql was imported
   res.json({ ok: true, db: 'connected' });
@@ -168,6 +270,7 @@ app.post('/api/login', wrap(async (req, res) => {
 
 /* ---------- everything the app needs in one call ---------- */
 app.get('/api/data', auth, wrap(async (req, res) => {
+  await processReservationAutomation();
   if (req.finance || req.security) {
     const [[user]] = await pool.query('SELECT id, name, email, photo, phone, is_admin, is_finance, is_security FROM users WHERE id=?', [req.uid]);
     const currentUser = {
@@ -193,9 +296,9 @@ app.get('/api/data', auth, wrap(async (req, res) => {
     photo: u.id === req.uid ? u.photo || '' : '', phone: u.id === req.uid ? u.phone || '' : '',
   }));
   const [res1] = req.admin
-    ? await pool.query("SELECT id, user_id AS uid, slot_no AS slot, res_date AS date, LEFT(res_time,5) AS time, stored, status FROM reservations ORDER BY res_date, res_time")
-    : await pool.query("SELECT id, user_id AS uid, slot_no AS slot, res_date AS date, LEFT(res_time,5) AS time, stored, status FROM reservations WHERE user_id=? ORDER BY res_date, res_time", [req.uid]);
-  const [slotReservations] = await pool.query('SELECT slot_no AS slot, res_date AS date, LEFT(res_time,5) AS time, status FROM reservations ORDER BY res_date, res_time');
+    ? await pool.query("SELECT id,user_id AS uid,slot_no AS slot,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,duration_minutes AS durationMinutes,is_whole_day AS wholeDay,total_price AS totalPrice,stored,actual_storage_ts AS actualStorageTs,grace_deadline AS graceDeadline,status FROM reservations ORDER BY res_date,res_time")
+    : await pool.query("SELECT id,user_id AS uid,slot_no AS slot,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,duration_minutes AS durationMinutes,is_whole_day AS wholeDay,total_price AS totalPrice,stored,actual_storage_ts AS actualStorageTs,grace_deadline AS graceDeadline,status FROM reservations WHERE user_id=? ORDER BY res_date,res_time", [req.uid]);
+  const [slotReservations] = await pool.query('SELECT slot_no AS slot,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,status FROM reservations WHERE status NOT IN (\'Expired\',\'Cancelled\') ORDER BY res_date,res_time');
   const [slotRows] = await pool.query('SELECT slot_no AS slot, is_blocked AS blocked FROM slots ORDER BY slot_no');
   const slots = slotRows.map((slot) => ({ ...slot, blocked: !!slot.blocked }));
   const blocked = slots.filter((slot) => slot.blocked).map((slot) => slot.slot);
@@ -203,6 +306,10 @@ app.get('/api/data', auth, wrap(async (req, res) => {
     ? await pool.query('SELECT reservation_id AS rid, user_id AS uid, slot_no AS slot, action AS act, ts FROM access_log ORDER BY id')
     : await pool.query('SELECT reservation_id AS rid, user_id AS uid, slot_no AS slot, action AS act, ts FROM access_log WHERE user_id=? ORDER BY id', [req.uid]);
   const [payments] = await pool.query('SELECT id, reservation_id AS reservationId, amount, status, submitted_at AS submittedAt, processed_at AS processedAt FROM payments WHERE user_id=? ORDER BY submitted_at DESC', [req.uid]);
+  const [notifications] = await pool.query(
+    'SELECT id,title,message,type,reservation_id AS reservationId,refund_id AS refundId,created_at AS createdAt,is_read AS isRead FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 100',
+    [req.uid],
+  );
   res.json({
     me: req.uid, users: list,
     res: res1.map((r) => ({ ...r, stored: !!r.stored })),
@@ -210,6 +317,7 @@ app.get('/api/data', auth, wrap(async (req, res) => {
     slots, blocked,
     log: log.map((l) => ({ ...l, ts: Number(l.ts) })),
     payments,
+    notifications: notifications.map((n) => ({ ...n, isRead: !!n.isRead })),
   });
 }));
 
@@ -244,7 +352,7 @@ app.post('/api/reservations/:id/payments', auth, riderOrAdmin, upload.single('re
   let storedPath;
   try {
     await connection.beginTransaction();
-    const [[reservation]] = await connection.query('SELECT id, status FROM reservations WHERE id=? AND user_id=? FOR UPDATE', [reservationId, req.uid]);
+    const [[reservation]] = await connection.query('SELECT id,status,total_price FROM reservations WHERE id=? AND user_id=? FOR UPDATE', [reservationId, req.uid]);
     if (!reservation) {
       await connection.rollback();
       return bad(res, 'Reservation not found.', 404);
@@ -268,7 +376,7 @@ app.post('/api/reservations/:id/payments', auth, riderOrAdmin, upload.single('re
     const receipt = `/uploads/receipts/${filename}`;
     const [payment] = await connection.query(
       'INSERT INTO payments (reservation_id,user_id,amount,receipt) VALUES (?,?,?,?)',
-      [reservationId, req.uid, PAYMENT_AMOUNT, receipt],
+      [reservationId, req.uid, reservation.total_price, receipt],
     );
     await connection.commit();
     storedPath = null;
@@ -317,7 +425,7 @@ const decidePayment = (status) => wrap(async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [[payment]] = await connection.query('SELECT id, reservation_id AS reservationId, status FROM payments WHERE id=? FOR UPDATE', [paymentId]);
+    const [[payment]] = await connection.query('SELECT id,reservation_id AS reservationId,user_id AS userId,status FROM payments WHERE id=? FOR UPDATE', [paymentId]);
     if (!payment) {
       await connection.rollback();
       return bad(res, 'Payment not found.', 404);
@@ -329,6 +437,13 @@ const decidePayment = (status) => wrap(async (req, res) => {
     await connection.query('UPDATE payments SET status=?, processed_at=CURRENT_TIMESTAMP, processed_by=? WHERE id=?', [status, req.uid, paymentId]);
     if (status === 'Verified') {
       await connection.query("UPDATE reservations SET status='Confirmed' WHERE id=?", [payment.reservationId]);
+      await createNotification(connection, {
+        userId: payment.userId,
+        title: 'Payment verified',
+        message: 'Your reservation payment has been verified! Your QR code is now available. You can view your reservation and access your QR code.',
+        type: 'PAYMENT_VERIFIED',
+        reservationId: payment.reservationId,
+      });
     }
     await connection.commit();
     res.json({ ok: true, status, smsSent: false, notification: 'SMS provider is not configured.' });
@@ -343,12 +458,110 @@ const decidePayment = (status) => wrap(async (req, res) => {
 app.post('/api/finance/payments/:id/verify', auth, financeOnly, decidePayment('Verified'));
 app.post('/api/finance/payments/:id/reject', auth, financeOnly, decidePayment('Rejected'));
 
+/* ---------- refunds and notifications ---------- */
+app.get('/api/finance/refunds', auth, financeOnly, wrap(async (req, res) => {
+  await processReservationAutomation();
+  const [refunds] = await pool.query(
+    `SELECT rf.id,rf.reservation_id AS reservationId,rf.user_id AS riderId,u.name AS riderName,
+            u.student_id AS riderStudentId,r.slot_no AS slot,r.res_date AS date,
+            LEFT(r.res_time,5) AS startTime,LEFT(r.end_time,5) AS endTime,
+            r.duration_minutes AS durationMinutes,r.is_whole_day AS wholeDay,
+            rf.original_payment_amount AS originalPaymentAmount,rf.refund_percentage AS refundPercentage,
+            rf.refund_amount AS refundAmount,rf.non_refundable_amount AS nonRefundableAmount,
+            rf.status,rf.rejection_reason AS rejectionReason,rf.transaction_reference AS transactionReference,
+            rf.approval_timestamp AS approvalTimestamp,rf.completion_timestamp AS completionTimestamp,
+            rf.expiration_timestamp AS expirationTimestamp,
+            approver.name AS approverName
+     FROM refunds rf
+     JOIN reservations r ON r.id=rf.reservation_id
+     JOIN users u ON u.id=rf.user_id
+     LEFT JOIN users approver ON approver.id=rf.finance_approver_id
+     ORDER BY rf.created_at DESC`,
+  );
+  res.json({ refunds });
+}));
+
+app.post('/api/finance/refunds/:id/:action', auth, financeOnly, wrap(async (req, res) => {
+  await processReservationAutomation();
+  const id = parseInt(req.params.id, 10);
+  const action = req.params.action;
+  if (!Number.isInteger(id) || id < 1) return bad(res, 'Refund not found.', 404);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[refund]] = await connection.query(
+      'SELECT id,reservation_id AS reservationId,user_id AS userId,status FROM refunds WHERE id=? FOR UPDATE',
+      [id],
+    );
+    if (!refund) { await connection.rollback(); return bad(res, 'Refund not found.', 404); }
+
+    let status;
+    let sql;
+    let params;
+    if (action === 'approve') {
+      if (refund.status !== 'PENDING') { await connection.rollback(); return bad(res, 'Only pending refunds can be approved.', 409); }
+      status = 'APPROVED';
+      sql = 'UPDATE refunds SET status=?,finance_approver_id=?,approval_timestamp=CURRENT_TIMESTAMP WHERE id=?';
+      params = [status,req.uid,id];
+    } else if (action === 'reject') {
+      if (refund.status !== 'PENDING') { await connection.rollback(); return bad(res, 'Only pending refunds can be rejected.', 409); }
+      const reason = String(req.body.reason || '').trim();
+      if (!reason) { await connection.rollback(); return bad(res, 'A rejection reason is required.', 400); }
+      status = 'REJECTED';
+      sql = 'UPDATE refunds SET status=?,finance_approver_id=?,rejection_reason=? WHERE id=?';
+      params = [status,req.uid,reason,id];
+    } else if (action === 'complete') {
+      if (refund.status !== 'APPROVED') { await connection.rollback(); return bad(res, 'Refund must be approved before completion.', 409); }
+      const reference = String(req.body.transactionReference || '').trim();
+      if (!reference) { await connection.rollback(); return bad(res, 'A transaction reference is required.', 400); }
+      status = 'COMPLETED';
+      sql = 'UPDATE refunds SET status=?,finance_approver_id=?,completion_timestamp=CURRENT_TIMESTAMP,transaction_reference=? WHERE id=?';
+      params = [status,req.uid,reference,id];
+    } else {
+      await connection.rollback();
+      return bad(res, 'Unknown refund action.', 400);
+    }
+    await connection.query(sql, params);
+    const message = status === 'APPROVED'
+      ? 'Your 50% refund request has been approved by Finance.'
+      : status === 'COMPLETED'
+        ? 'Your refund has been successfully processed. Please check your payment account.'
+        : 'Your refund request has been rejected. Please check the refund details for the reason.';
+    await createNotification(connection, {
+      userId: refund.userId,
+      title: 'Refund status update',
+      message,
+      type: 'REFUND_STATUS',
+      reservationId: refund.reservationId,
+      refundId: refund.id,
+    });
+    await connection.commit();
+    res.json({ ok:true,status });
+  } catch (e) {
+    await connection.rollback();
+    throw e;
+  } finally {
+    connection.release();
+  }
+}));
+
+app.post('/api/notifications/:id/read', auth, wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  await pool.query('UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?', [id,req.uid]);
+  res.json({ ok:true });
+}));
+
+app.post('/api/notifications/read-all', auth, wrap(async (req, res) => {
+  await pool.query('UPDATE notifications SET is_read=1 WHERE user_id=?', [req.uid]);
+  res.json({ ok:true });
+}));
+
 /* ---------- reservation QR authorization ---------- */
 app.get('/api/reservations/:id/qr', auth, riderOrAdmin, wrap(async (req, res) => {
   const reservationId = parseInt(req.params.id, 10);
   const [[reservation]] = Number.isInteger(reservationId)
     ? await pool.query(
-        "SELECT id, user_id, slot_no, res_date AS date, LEFT(res_time,5) AS time, status FROM reservations WHERE id=? AND (user_id=? OR ?=1)",
+        "SELECT id,user_id,slot_no,res_date AS date,LEFT(res_time,5) AS time,status,grace_deadline FROM reservations WHERE id=? AND (user_id=? OR ?=1)",
         [reservationId, req.uid, req.admin ? 1 : 0]
       )
     : [[]];
@@ -360,7 +573,7 @@ app.get('/api/reservations/:id/qr', auth, riderOrAdmin, wrap(async (req, res) =>
     [reservationId]
   );
 
-  if (reservation.status !== 'Confirmed' || !payment) {
+  if (!['Confirmed','Active','Used'].includes(reservation.status) || !payment) {
     return bad(res, 'Finance must verify payment before QR access.', 403);
   }
 
@@ -378,30 +591,69 @@ app.get('/api/reservations/:id/qr', auth, riderOrAdmin, wrap(async (req, res) =>
 /* ---------- reservations ---------- */
 app.post('/api/reservations', auth, riderOrAdmin, wrap(async (req, res) => {
   const slot = parseInt(req.body.slot, 10), { date, time } = req.body;
+  const wholeDay = req.body.wholeDay === true || req.body.duration === 'whole_day';
+  const durationMinutes = wholeDay ? null : parseInt(req.body.durationMinutes, 10);
   if (!(slot >= 1 && slot <= 12)) return bad(res, 'Please select a slot.');
   if (!okDate(date)) return bad(res, 'Please choose a date.');
   if (!okTime(time)) return bad(res, 'Please choose a time.');
   if (dt(date, time) < new Date()) return bad(res, 'Please choose a future date and time.');
+  const schedule = calculateSchedule(date, time, durationMinutes, wholeDay);
+  if (schedule.error) return bad(res, schedule.error);
   const [[s]] = await pool.query('SELECT is_blocked FROM slots WHERE slot_no=?', [slot]);
   if (!s) return bad(res, 'Unknown slot.');
   if (s.is_blocked) return bad(res, 'That slot is under maintenance.');
+  const startMinutes = timeMinutes(time);
+  const endMinutes = timeMinutes(schedule.endTime);
+  const [[overlap]] = await pool.query(
+    `SELECT id FROM reservations
+     WHERE slot_no=? AND res_date=? AND status NOT IN ('Expired','Cancelled')
+       AND TIME_TO_SEC(res_time) < ? AND TIME_TO_SEC(COALESCE(end_time,'21:00:00')) > ?
+     LIMIT 1`,
+    [slot, date, endMinutes * 60, startMinutes * 60],
+  );
+  if (overlap) return bad(res, 'This slot already has an overlapping reservation.', 409);
+  const connection = await pool.getConnection();
   try {
-    const [r] = await pool.query('INSERT INTO reservations (user_id,slot_no,res_date,res_time) VALUES (?,?,?,?)', [req.uid, slot, date, time]);
+    await connection.beginTransaction();
+    const [r] = await connection.query(
+      `INSERT INTO reservations
+       (user_id,slot_no,res_date,res_time,end_time,duration_minutes,is_whole_day,total_price,grace_deadline)
+       VALUES (?,?,?,?,?,?,?,?,TIMESTAMP(?,ADDTIME(?, '00:10:00')))`,
+      [req.uid, slot, date, time, schedule.endTime + ':00', schedule.durationMinutes,
+       schedule.wholeDay ? 1 : 0, schedule.totalPrice, date, time],
+    );
+    await connection.commit();
     res.json({ id: r.insertId });
   } catch (e) {
+    await connection.rollback();
     if (e.code === 'ER_DUP_ENTRY') return bad(res, 'That slot is already reserved on this date.', 409);
     throw e;
-  }
+  } finally { connection.release(); }
 }));
 
 app.put('/api/reservations/:id', auth, riderOrAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10), { date, time } = req.body;
+  const wholeDay = req.body.wholeDay === true || req.body.duration === 'whole_day';
+  const durationMinutes = wholeDay ? null : parseInt(req.body.durationMinutes, 10);
   if (!okDate(date) || !okTime(time)) return bad(res, 'Choose a date and time.');
   if (dt(date, time) < new Date()) return bad(res, 'Choose a future date and time.');
-  const [[r]] = await pool.query('SELECT id FROM reservations WHERE id=? AND user_id=?', [id, req.uid]);
+  const schedule = calculateSchedule(date, time, durationMinutes, wholeDay);
+  if (schedule.error) return bad(res, schedule.error);
+  const [[r]] = await pool.query('SELECT id,slot_no FROM reservations WHERE id=? AND user_id=?', [id, req.uid]);
   if (!r) return bad(res, 'Reservation not found.', 404);
+  const startMinutes = timeMinutes(time), endMinutes = timeMinutes(schedule.endTime);
+  const [[overlap]] = await pool.query(
+    `SELECT id FROM reservations WHERE slot_no=? AND res_date=? AND id<>? AND status NOT IN ('Expired','Cancelled')
+     AND TIME_TO_SEC(res_time) < ? AND TIME_TO_SEC(COALESCE(end_time,'21:00:00')) > ? LIMIT 1`,
+    [r.slot_no,date,id,endMinutes*60,startMinutes*60],
+  );
+  if (overlap) return bad(res, 'This slot already has an overlapping reservation.', 409);
   try {
-    await pool.query('UPDATE reservations SET res_date=?, res_time=? WHERE id=?', [date, time, id]);
+    await pool.query(
+      `UPDATE reservations SET res_date=?,res_time=?,end_time=?,duration_minutes=?,is_whole_day=?,total_price=?,
+       grace_deadline=TIMESTAMP(?,ADDTIME(?, '00:10:00')) WHERE id=?`,
+      [date,time,schedule.endTime + ':00',schedule.durationMinutes,schedule.wholeDay?1:0,schedule.totalPrice,date,time,id],
+    );
     res.json({ ok: true });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') return bad(res, 'That slot is already reserved on this date.', 409);
@@ -410,7 +662,7 @@ app.put('/api/reservations/:id', auth, riderOrAdmin, wrap(async (req, res) => {
 }));
 
 app.delete('/api/reservations/:id', auth, riderOrAdmin, wrap(async (req, res) => {
-  await pool.query('DELETE FROM reservations WHERE id=? AND user_id=?', [parseInt(req.params.id, 10), req.uid]);
+  await pool.query("UPDATE reservations SET status='Cancelled' WHERE id=? AND user_id=?", [parseInt(req.params.id, 10), req.uid]);
   res.json({ ok: true });
 }));
 
@@ -438,7 +690,8 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
     const [[r]] = await connection.query(
       `SELECT r.id, r.user_id, r.slot_no, r.res_date AS date,
               LEFT(r.res_time,5) AS time, r.stored, r.status,
-              r.qr_used, s.is_blocked,
+              r.qr_used,r.actual_storage_ts,r.grace_deadline,
+              LEFT(r.end_time,5) AS endTime,s.is_blocked,
               EXISTS(
                 SELECT 1 FROM payments p
                 WHERE p.reservation_id=r.id
@@ -468,16 +721,10 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
         'The QR details do not match this reservation. The cabinet remains locked.');
     }
 
-    if (r.status !== 'Confirmed' || !r.payment_verified) {
+    if (!['Confirmed','Active','Used'].includes(r.status) || !r.payment_verified) {
       await connection.rollback();
       return out(false, 'Payment not verified',
         'Finance must verify payment before this reservation can be used.');
-    }
-
-    if (Number(r.qr_used) === 1) {
-      await connection.rollback();
-      return out(false, 'Already used',
-        'This reservation QR code has already been used.');
     }
 
     if (r.is_blocked) {
@@ -488,7 +735,8 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
 
     const now = Date.now();
     const open = dt(r.date, r.time).getTime() - 30 * 60000;
-    const end = dt(r.date, '23:59').getTime() + 59999;
+    const graceDeadline = r.grace_deadline ? new Date(r.grace_deadline).getTime() : dt(r.date, r.time).getTime() + 10 * 60000;
+    const end = dt(r.date, r.endTime || '21:00').getTime();
 
     if (now < open) {
       await connection.rollback();
@@ -496,19 +744,23 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
         `Slot ${r.slot_no} opens 30 minutes before ${ft(r.time)} on ${fd(r.date)}.`);
     }
 
-    if (now > end) {
+    if (r.stored ? now > end : now > graceDeadline) {
       await connection.rollback();
       return out(false, 'Reservation expired',
-        'The date of this reservation has passed.');
+        r.stored ? 'The reservation ending time has passed.' : 'The 10-minute helmet storage grace period has passed.');
     }
 
     const stored = r.stored ? 0 : 1;
     const action = stored ? 'Stored' : 'Retrieved';
 
-    await connection.query(
-      'UPDATE reservations SET stored=?, qr_used=1 WHERE id=?',
-      [stored, r.id]
-    );
+    if (stored) {
+      await connection.query(
+        "UPDATE reservations SET stored=1,actual_storage_ts=?,qr_used=1,status='Active' WHERE id=?",
+        [now,r.id]
+      );
+    } else {
+      await connection.query("UPDATE reservations SET stored=0,status='Used' WHERE id=?", [r.id]);
+    }
 
     await connection.query(
       'INSERT INTO access_log (reservation_id,user_id,slot_no,action,ts) VALUES (?,?,?,?,?)',
@@ -702,5 +954,6 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-
+processReservationAutomation().catch(() => {});
+setInterval(() => processReservationAutomation().catch(() => {}), 30000);
 app.listen(PORT, '0.0.0.0', () => console.log(`SHSRS API running on http://localhost:${PORT}`));

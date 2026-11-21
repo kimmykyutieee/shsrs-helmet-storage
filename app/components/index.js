@@ -14,6 +14,7 @@ import SecuritySidebar from './SecuritySidebar';
 import AdminHeader from './AdminHeader';
 import FinanceHeader from './FinanceHeader';
 import RiderHeader from './RiderHeader';
+import RoleHeader from './RoleHeader';
 import FinanceProfile from '../screens/finance/FinanceProfile';
 import { staticStyles, dynamicStyles, buttonVariant, tagColors, iconBoxColors } from './common.styles';
 
@@ -115,7 +116,7 @@ function InfoModal({ visible, title, onClose, children }) {
   );
 }
 
-function DateTimeFields({ date, time, onDate, onTime }) {
+function DateTimeFields({ date, time, onDate, onTime, dateOnly = false }) {
   const { s, c } = useApp();
   const [show, setShow] = useState(null);
   const ios = Platform.OS === 'ios';
@@ -124,12 +125,12 @@ function DateTimeFields({ date, time, onDate, onTime }) {
     return (
       <View style={staticStyles.indexView17}>
         {React.createElement('input', { type: 'date', value: date, min: today(), onChange: (e) => onDate(e.target.value), style: st })}
-        {React.createElement('input', { type: 'time', value: time, onChange: (e) => onTime(e.target.value), style: st })}
+        {        dateOnly ? null : React.createElement('input', { type: 'time', value: time, onChange: (e) => onTime(e.target.value), style: st })}
       </View>
     );
   }
   const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
-  const Box = ({ k, text, ph, icon }) => (
+  const renderBox = (k, text, ph, icon) => (
     <TouchableOpacity style={[s.input, staticStyles.indexTouchableOpacity18]} onPress={() => setShow(show === k ? null : k)}>
       <Ionicons name={icon} size={17} color={c.muted} />
       <Text style={dynamicStyles.indexText19({ c, text })}>{text || ph}</Text>
@@ -138,15 +139,15 @@ function DateTimeFields({ date, time, onDate, onTime }) {
   return (
     <View>
       <View style={staticStyles.indexView17}>
-        <Box k="d" text={date ? fd(date) : ''} ph="Select date" icon="calendar-outline" />
-        <Box k="t" text={time ? ft(time) : ''} ph="Select time" icon="time-outline" />
+        {renderBox('d', date ? fd(date) : '', 'Select date', 'calendar-outline')}
+        {!dateOnly ? renderBox('t', time ? ft(time) : '', 'Select time', 'time-outline') : null}
       </View>
       {show === 'd' && (
         <DateTimePicker value={date ? dt(date, '00:00') : new Date()} mode="date" minimumDate={midnight}
           display={ios ? 'inline' : 'default'} themeVariant={c.dark ? 'dark' : 'light'}
           onChange={(e, v) => { if (!ios) setShow(null); if (e.type !== 'dismissed' && v) onDate(ymd(v)); }} />
       )}
-      {show === 't' && (
+      {!dateOnly && show === 't' && (
         <DateTimePicker value={time ? dt(today(), time) : new Date()} mode="time"
           display={ios ? 'spinner' : 'default'} themeVariant={c.dark ? 'dark' : 'light'}
           onChange={(e, v) => { if (!ios) setShow(null); if (e.type !== 'dismissed' && v) onTime(hm(v)); }} />
@@ -182,8 +183,9 @@ function SlotGrid({ taken, blocked, sel, onSel, admin, onAdminTap }) {
 function Layout({ cur, title, subtitle, children }) {
   const { c, s, me, nav, logout, toggleTheme, wide } = useApp();
   const [menu, setMenu] = useState(false);
+  const isRider = !me.finance && !me.admin && !me.security;
   const Sidebar = me.finance ? FinanceSidebar : me.admin ? AdminSidebar : me.security ? SecuritySidebar : RiderSidebar;
-  const Header = me.finance ? FinanceHeader : me.admin ? AdminHeader : RiderHeader;
+  const Header = me.finance ? FinanceHeader : me.admin ? AdminHeader : me.security ? RoleHeader : RiderHeader;
   const items = me.finance ? FINANCE_NAV : me.admin ? ADMIN_NAV : me.security ? SECURITY_NAV : NAV;
 
   const content = (
@@ -235,17 +237,29 @@ function Layout({ cur, title, subtitle, children }) {
             <Text style={staticStyles.indexText42}>MENU</Text>
             <Sidebar cur={cur} nav={nav} />
           </View>
-          <TouchableOpacity onPress={() => setMenu(true)} style={staticStyles.indexTouchableOpacity43}>
-            <Avatar u={me} size={38} ring />
-            <View style={staticStyles.indexView44}>
-              <Text numberOfLines={1} style={staticStyles.indexText45}>{me.name}</Text>
-              <Text style={staticStyles.indexText46}>{me.admin ? 'Administrator' : me.finance ? 'Finance' : me.security ? 'Security' : 'Rider'}</Text>
-            </View>
-            <Ionicons name="ellipsis-horizontal" size={18} color="#8fa3cc" />
-          </TouchableOpacity>
+          {!isRider ? (
+            <TouchableOpacity onPress={() => setMenu(true)} style={staticStyles.indexTouchableOpacity43}>
+              <Avatar u={me} size={38} ring />
+              <View style={staticStyles.indexView44}>
+                <Text numberOfLines={1} style={staticStyles.indexText45}>{me.name}</Text>
+                <Text style={staticStyles.indexText46}>{me.admin ? 'Administrator' : me.finance ? 'Finance' : me.security ? 'Security' : 'Rider'}</Text>
+              </View>
+              <Ionicons name="ellipsis-horizontal" size={18} color="#8fa3cc" />
+            </TouchableOpacity>
+          ) : null}
         </View>
         <View style={staticStyles.indexView44}>
-          <Header title={title} subtitle={subtitle} s={s} c={c} />
+          <Header
+            title={title}
+            subtitle={subtitle}
+            s={s}
+            c={c}
+            profileControl={isRider ? (
+              <TouchableOpacity accessibilityLabel="Open rider account menu" onPress={() => setMenu(true)} style={staticStyles.riderHeaderProfile}>
+                <Avatar u={me} size={38} ring />
+              </TouchableOpacity>
+            ) : null}
+          />
           {content}
         </View>
         {sheet}
@@ -259,6 +273,7 @@ function Layout({ cur, title, subtitle, children }) {
         <TouchableOpacity onPress={() => nav('dashboard')} style={staticStyles.indexTouchableOpacity49}>
           <Shield size={28} /><Text style={staticStyles.indexText50}>SHSRS</Text>
         </TouchableOpacity>
+        {!me.admin && !me.finance && !me.security ? <RiderHeader compact /> : null}
         <TouchableOpacity onPress={() => setMenu(true)}><Avatar u={me} size={36} ring /></TouchableOpacity>
       </View>
       {content}

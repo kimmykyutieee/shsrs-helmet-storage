@@ -12,7 +12,7 @@ import { Shield, InfoModal } from './components';
 import { staticStyles, dynamicStyles } from './components/app.styles';
 import RootNavigator from './navigation/RootNavigator';
 
-const EMPTY = { me: null, users: [], res: [], slotReservations: [], slots: [], blocked: [], log: [], payments: [] };
+const EMPTY = { me: null, users: [], res: [], slotReservations: [], slots: [], blocked: [], log: [], payments: [], notifications: [] };
 const homeRoute = (user) => user?.admin ? 'dashboard' : user?.finance ? 'financePending' : user?.security ? 'securityScan' : 'dashboard';
 
 function Root() {

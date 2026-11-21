@@ -17,5 +17,7 @@ const getPendingPayments = () => api('GET', '/api/finance/payments');
 const getPaymentHistory = () => api('GET', '/api/finance/payment-history');
 const getPaymentReceipt = (paymentId) => api('GET', `/api/finance/payments/${paymentId}/receipt`);
 const decidePayment = (paymentId, decision) => api('POST', `/api/finance/payments/${paymentId}/${decision}`);
+const getRefunds = () => api('GET','/api/finance/refunds');
+const processRefund = (refundId, action, body = {}) => api('POST',`/api/finance/refunds/${refundId}/${action}`,body);
 
-export { submitPayment, getPendingPayments, getPaymentHistory, getPaymentReceipt, decidePayment };
+export { submitPayment, getPendingPayments, getPaymentHistory, getPaymentReceipt, decidePayment, getRefunds, processRefund };
