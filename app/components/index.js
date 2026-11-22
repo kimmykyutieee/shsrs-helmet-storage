@@ -273,8 +273,16 @@ function Layout({ cur, title, subtitle, children }) {
         <TouchableOpacity onPress={() => nav('dashboard')} style={staticStyles.indexTouchableOpacity49}>
           <Shield size={28} /><Text style={staticStyles.indexText50}>SHSRS</Text>
         </TouchableOpacity>
-        {!me.admin && !me.finance && !me.security ? <RiderHeader compact /> : null}
-        <TouchableOpacity onPress={() => setMenu(true)}><Avatar u={me} size={36} ring /></TouchableOpacity>
+        {isRider ? (
+          <RiderHeader
+            compact
+            profileControl={(
+              <TouchableOpacity accessibilityLabel="Open rider account menu" onPress={() => setMenu(true)} style={staticStyles.riderHeaderProfile}>
+                <Avatar u={me} size={36} ring />
+              </TouchableOpacity>
+            )}
+          />
+        ) : <TouchableOpacity onPress={() => setMenu(true)}><Avatar u={me} size={36} ring /></TouchableOpacity>}
       </View>
       {content}
       <SafeAreaView edges={['bottom']} style={dynamicStyles.indexSafeAreaView51({ c })}>

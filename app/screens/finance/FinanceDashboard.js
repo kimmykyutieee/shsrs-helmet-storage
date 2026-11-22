@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Image, Text, TextInput, View } from 'react-native';
 import { useApp } from '../../shared/hooks/useApp';
-import { getPendingPayments, getPaymentReceipt, decidePayment, getRefunds, processRefund } from '../../services/paymentService';
+import { getPendingPayments, getPaymentReceipt, decidePayment, getRefunds, processRefund, getPendingExtensions, processExtension } from '../../services/paymentService';
 import { Layout, InfoModal, Btn, Tag } from '../../components';
 import { staticStyles, dynamicStyles } from '../../components/finance.styles';
 import FinanceReservations from './FinanceReservations';
@@ -18,6 +18,7 @@ function Finance() {
   const [refundDetail,setRefundDetail] = useState(null);
   const [refundReason,setRefundReason] = useState('');
   const [transactionReference,setTransactionReference] = useState('');
+  const [extensions,setExtensions] = useState([]);
 
   const viewPayments = useCallback(async () => {
     try {
@@ -25,6 +26,8 @@ function Finance() {
       setPending(result.payments);
       const refundResult = await getRefunds();
       setRefunds(refundResult.refunds);
+      const extensionResult = await getPendingExtensions();
+      setExtensions(extensionResult.extensions);
       setError('');
     } catch (x) { setError(x.message); }
   }, []);
@@ -35,10 +38,10 @@ function Finance() {
     return () => clearInterval(interval);
   }, [viewPayments]);
 
-  const processPayment = async (payment, decision) => {
+  const processPayment = async (payment, decision, reason) => {
     setBusy(payment.id);
     try {
-      await decidePayment(payment.id, decision);
+      await decidePayment(payment.id, decision, reason ? { reason } : {});
       await viewPayments();
       toast(`Payment ${decision === 'verify' ? 'approved' : 'rejected'}. SMS was not sent because no provider is configured.`);
     } catch (x) { toast(x.message); }
@@ -74,6 +77,16 @@ function Finance() {
     setBusy(null);
   };
 
+  const handleExtensionAction = async (extension, action) => {
+    setBusy(`extension-${extension.id}`);
+    try {
+      await processExtension(extension.id, action, action === 'reject' ? { reason:'Extension payment rejected by Finance.' } : {});
+      await viewPayments();
+      toast(`Extension ${action === 'verify' ? 'approved' : 'rejected'}.`);
+    } catch (x) { toast(x.message); }
+    setBusy(null);
+  };
+
   return (
     <Layout cur="financePending" title="Pending Payments" subtitle="Review student-submitted payments.">
       <View style={[s.card, dynamicStyles.financeDashboardView1({ c })]}>
@@ -88,6 +101,22 @@ function Finance() {
         onViewReceipt={viewReceipt}
         onProcess={processPayment}
       />
+      <View style={[s.card, { marginTop:16 }]}>
+        <Text style={s.cardTitle}>Extension Payments</Text>
+        <Text style={s.cardSub}>Verify additional reservation time before it becomes active.</Text>
+        {extensions.length ? extensions.map((extension) => (
+          <View key={extension.id} style={dynamicStyles.paymentVerificationView1({ c })}>
+            <Text style={dynamicStyles.paymentVerificationText6({ c })}>Extension #{extension.id} · Reservation #{extension.reservationId}</Text>
+            <Text style={s.muted}>{extension.riderName} · {extension.additionalMinutes} minutes · PHP {Number(extension.additionalFee).toFixed(2)}</Text>
+            {extension.status === 'Pending' ? (
+              <View style={{ flexDirection:'row', gap:8, marginTop:10 }}>
+                <Btn small label="Approve" onPress={() => handleExtensionAction(extension,'verify')} />
+                <Btn small variant="outline" label="Reject" onPress={() => handleExtensionAction(extension,'reject')} />
+              </View>
+            ) : <Tag kind={extension.status === 'Approved' ? 'ok' : 'bad'} text={extension.status} />}
+          </View>
+        )) : <Text style={s.empty}>No extension payments are awaiting review.</Text>}
+      </View>
       <View style={[s.card, { marginTop:16 }]}>
         <Text style={s.cardTitle}>Refund Activity</Text>
         <Text style={s.cardSub}>Automatic 50% refunds for reservations missed beyond the 10-minute grace period.</Text>
@@ -122,7 +151,7 @@ function Finance() {
             <Text style={s.cardSub}>Non-refundable: PHP {Number(refundDetail.nonRefundableAmount).toFixed(2)} · Status: {refundDetail.status}</Text>
             {refundDetail.status === 'PENDING' ? (
               <>
-                <TextInput style={[s.input,{ marginTop:10 }]} placeholder="Rejection reason" value={refundReason} onChangeText={setRefundReason} />
+                <TextInput style={[s.input,{ marginTop:10 }]} maxLength={350} placeholder="Rejection reason" value={refundReason} onChangeText={setRefundReason} />
                 <View style={{ flexDirection:'row', gap:8, marginTop:10, flexWrap:'wrap' }}>
                   <Btn small label="Approve Refund" onPress={() => handleRefundAction(refundDetail,'approve')} />
                   <Btn small variant="outline" label="Reject Refund" onPress={() => handleRefundAction(refundDetail,'reject')} />

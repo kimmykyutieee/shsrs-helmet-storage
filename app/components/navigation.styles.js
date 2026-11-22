@@ -5,7 +5,7 @@ const staticStyles = StyleSheet.create({
   roleHeaderText3: { marginTop: 4 },
   riderHeaderRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 32, paddingTop: 28, paddingBottom: 6, gap: 16 },
   riderHeaderTitle: { flex: 1, minWidth: 0 },
-  riderHeaderControls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  riderHeaderControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
   riderHeaderProfile: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
   riderHeaderBell: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   riderHeaderBadge: { position: 'absolute', top: 0, right: 0, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: '#B91C1C', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },

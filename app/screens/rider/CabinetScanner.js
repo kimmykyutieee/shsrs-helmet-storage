@@ -72,7 +72,7 @@ function Scan() {
         </View>
         {!me.security ? (
           <View style={dynamicStyles.cabinetScannerView2({ wide })}>
-            <View style={s.card}><Text style={s.cardTitle}>Cabinet activity</Text><Text style={[s.cardSub, staticStyles.cabinetScannerText17]}>Your store and retrieve history.</Text><LogList list={log} /></View>
+
           </View>
         ) : null}
       </View>

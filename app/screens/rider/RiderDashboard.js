@@ -11,7 +11,7 @@ function Dashboard() {
   const takenToday = new Set((db.slotReservations || []).filter((x) => x.date === today()).map((x) => x.slot));
   const freeToday = (db.slots || []).filter((slot) => !slot.blocked && !takenToday.has(slot.slot)).length;
   return (
-    <Layout cur="dashboard" title="Home" subtitle={`${greet()}, ${me.name.split(' ')[0]} — here's what's happening with your helmet storage.`}>
+    <Layout cur="dashboard" title={`${greet()}, ${me.name.split(' ')[0]}!`} subtitle="here's what's happening with your helmet storage.">
       <View style={staticStyles.riderDashboardView1}>
         <Stat icon="calendar-outline" value={reservations.length} label="My reservations" />
         <Stat icon="lock-open-outline" value={freeToday} label="Slots free today" tone="ok" />

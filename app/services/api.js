@@ -15,7 +15,25 @@ const api = async (method, path, body, isFormData = false) => {
       headers,
       body: requestBody,
     });
-  } catch (_e) { throw new Error('Cannot reach the server at ' + API_URL); }
+  } catch (error) {
+    const errorDetails = {};
+    if (error && typeof error === 'object') {
+      ['name', 'message', 'stack', 'code', 'errno', 'syscall', 'address', 'port', 'domain', 'nativeStackAndroid'].forEach((key) => {
+        if (error[key] !== undefined) errorDetails[key] = error[key];
+      });
+      if (error.cause instanceof Error) {
+        errorDetails.cause = {
+          name: error.cause.name,
+          message: error.cause.message,
+          stack: error.cause.stack,
+        };
+      }
+    } else {
+      errorDetails.message = String(error);
+    }
+    console.error('[api] Fetch request failed', { apiUrl: API_URL, path, error: errorDetails });
+    throw error;
+  }
   let j = {};
   try { j = await r.json(); } catch (_e) {}
   if (!r.ok) throw new Error(j.error || 'Request failed');

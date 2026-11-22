@@ -16,8 +16,10 @@ const submitPayment = async (reservationId, receipt) => {
 const getPendingPayments = () => api('GET', '/api/finance/payments');
 const getPaymentHistory = () => api('GET', '/api/finance/payment-history');
 const getPaymentReceipt = (paymentId) => api('GET', `/api/finance/payments/${paymentId}/receipt`);
-const decidePayment = (paymentId, decision) => api('POST', `/api/finance/payments/${paymentId}/${decision}`);
+const decidePayment = (paymentId, decision, body = {}) => api('POST', `/api/finance/payments/${paymentId}/${decision}`, body);
 const getRefunds = () => api('GET','/api/finance/refunds');
 const processRefund = (refundId, action, body = {}) => api('POST',`/api/finance/refunds/${refundId}/${action}`,body);
+const getPendingExtensions = () => api('GET','/api/finance/extensions');
+const processExtension = (extensionId, action, body = {}) => api('POST',`/api/finance/extensions/${extensionId}/${action}`,body);
 
-export { submitPayment, getPendingPayments, getPaymentHistory, getPaymentReceipt, decidePayment, getRefunds, processRefund };
+export { submitPayment, getPendingPayments, getPaymentHistory, getPaymentReceipt, decidePayment, getRefunds, processRefund, getPendingExtensions, processExtension };

@@ -62,7 +62,7 @@ function QRScreen({ id }) {
         <View style={[s.card, staticStyles.riderQRCodeView4]}>
           <IconBox icon="card-outline" tone="gold" size={60} />
           <Text style={s.cardTitle}>{payment?.status === 'Rejected' ? 'Payment rejected' : payment?.status === 'Pending' ? 'Pending Verification' : 'Payment required'}</Text>
-          <Text style={s.empty}>{payment?.status === 'Rejected' ? 'Submit a new receipt from Reservations. A QR code is unavailable until Finance verifies payment.' : 'Submit the PHP 25.00 payment and wait for Finance verification before accessing your QR code.'}</Text>
+          <Text style={s.empty}>{payment?.status === 'Rejected' ? 'Submit a new receipt from Reservations. A QR code is unavailable until Finance verifies payment.' : 'Submit the payment and wait for Finance verification before accessing your QR code.'}</Text>
           <Btn variant="outline" icon="refresh-outline" label="Check payment status" onPress={refresh} />
           <Btn label="Go to reservations" onPress={() => nav('reservations')} />
         </View>

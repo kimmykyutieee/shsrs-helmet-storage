@@ -12,7 +12,9 @@ function NotificationBell({ compact }) {
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const notifications = db.notifications || [];
-  const unread = notifications.filter((notification) => !notification.isRead).length;
+  const unread = Number.isFinite(Number(db.unreadNotificationCount))
+    ? Number(db.unreadNotificationCount)
+    : notifications.filter((notification) => !notification.isRead).length;
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -32,7 +34,7 @@ function NotificationBell({ compact }) {
       await markRead(notification);
       setVisible(false);
       if (notification.reservationId) {
-        nav(notification.type === 'PAYMENT_VERIFIED' ? 'qr' : 'myReservations', notification.reservationId);
+        nav(['PAYMENT_VERIFIED','QR_AVAILABLE'].includes(notification.type) ? 'qr' : 'myReservations', notification.reservationId);
       }
     } catch (error) {
       toast(error.message);
@@ -126,7 +128,12 @@ function NotificationBell({ compact }) {
 function RiderHeader({ compact, profileControl, ...props }) {
   const { c, s } = useApp();
   if (compact) {
-    return <NotificationBell compact />;
+    return (
+      <View style={staticStyles.riderHeaderControls}>
+        <NotificationBell compact />
+        {profileControl}
+      </View>
+    );
   }
   return (
     <View style={staticStyles.riderHeaderRow}>
