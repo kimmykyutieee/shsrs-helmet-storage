@@ -48,12 +48,17 @@ CREATE TABLE IF NOT EXISTS reservations (
 
 CREATE TABLE IF NOT EXISTS access_log (
   id             INT AUTO_INCREMENT PRIMARY KEY,
-  reservation_id INT NOT NULL,
+  reservation_id INT NULL,
   user_id        INT NULL,
-  slot_no        TINYINT NOT NULL,
-  action         ENUM('Stored','Retrieved') NOT NULL,
+  slot_no        TINYINT NULL,
+  action         ENUM('Stored','Retrieved','Scan Attempt') NOT NULL,
   ts             BIGINT NOT NULL,
-  CONSTRAINT fk_log_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+  scan_result    ENUM('VALID','INVALID','EXPIRED','DENIED','ERROR') NULL,
+  scan_code      VARCHAR(2048) NULL,
+  scanned_by     INT NULL,
+  KEY ix_access_log_scanned_by (scanned_by),
+  CONSTRAINT fk_log_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_access_log_scanned_by FOREIGN KEY (scanned_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS payments (

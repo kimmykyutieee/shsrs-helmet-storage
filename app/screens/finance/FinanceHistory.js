@@ -29,7 +29,7 @@ function FinanceHistory() {
     <Layout cur="financeHistory" title="History" subtitle="Previously approved and rejected payments.">
       <View style={s.card}>
         <View style={staticStyles.financeHistoryView1}>
-          <View><Text style={s.cardTitle}>Processed payments</Text><Text style={s.cardSub}>Payment records retained after Finance review.</Text></View>
+          <View><Text style={s.cardTitle}>Processed payments</Text></View>
           <Btn small variant="outline" icon="refresh-outline" label="Refresh" onPress={refresh} />
         </View>
         {error ? <Text style={s.err}>{error}</Text> : null}

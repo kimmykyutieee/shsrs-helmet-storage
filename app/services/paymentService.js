@@ -14,7 +14,7 @@ const submitPayment = async (reservationId, receipt) => {
   return api('POST', `/api/reservations/${reservationId}/payments`, { receipt });
 };
 const getPendingPayments = () => api('GET', '/api/finance/payments');
-const getPaymentHistory = () => api('GET', '/api/finance/payment-history');
+const getPaymentHistory = (includePending = false) => api('GET', `/api/finance/payment-history${includePending ? '?includePending=1' : ''}`);
 const getPaymentReceipt = (paymentId) => api('GET', `/api/finance/payments/${paymentId}/receipt`);
 const decidePayment = (paymentId, decision, body = {}) => api('POST', `/api/finance/payments/${paymentId}/${decision}`, body);
 const getRefunds = () => api('GET','/api/finance/refunds');

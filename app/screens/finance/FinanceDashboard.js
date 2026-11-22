@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Image, Text, TextInput, View } from 'react-native';
+import { Image, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useApp } from '../../shared/hooks/useApp';
 import { getPendingPayments, getPaymentReceipt, decidePayment, getRefunds, processRefund, getPendingExtensions, processExtension } from '../../services/paymentService';
 import { Layout, InfoModal, Btn, Tag } from '../../components';
@@ -19,6 +19,7 @@ function Finance() {
   const [refundReason,setRefundReason] = useState('');
   const [transactionReference,setTransactionReference] = useState('');
   const [extensions,setExtensions] = useState([]);
+  const [activePaymentTab,setActivePaymentTab] = useState('pending');
 
   const viewPayments = useCallback(async () => {
     try {
@@ -87,39 +88,78 @@ function Finance() {
     setBusy(null);
   };
 
+  const pendingPayments = pending.filter((payment) => payment.status === 'Pending');
+  const pendingExtensions = extensions.filter((extension) =>
+    extension.status === 'Pending' && extension.paymentStatus === 'Pending');
+  const pendingRefunds = refunds.filter((refund) => refund.status === 'PENDING');
+  const pendingCount = pendingPayments.length;
+  const extensionCount = pendingExtensions.length;
+  const refundCount = pendingRefunds.length;
+
   return (
-    <Layout cur="financePending" title="Pending Payments" subtitle="Review student-submitted payments.">
-      <View style={[s.card, dynamicStyles.financeDashboardView1({ c })]}>
-        <Text style={s.cardTitle}>SMS notifications are unavailable</Text>
-        <Text style={s.cardSub}>No SMS provider is configured. Students can check their payment and QR status in the app.</Text>
-      </View>
-      {error ? <Text style={s.err}>{error}</Text> : null}
-      <FinanceReservations
-        pending={pending}
-        busy={busy}
-        onRefresh={viewPayments}
-        onViewReceipt={viewReceipt}
-        onProcess={processPayment}
-      />
-      <View style={[s.card, { marginTop:16 }]}>
-        <Text style={s.cardTitle}>Extension Payments</Text>
-        <Text style={s.cardSub}>Verify additional reservation time before it becomes active.</Text>
-        {extensions.length ? extensions.map((extension) => (
-          <View key={extension.id} style={dynamicStyles.paymentVerificationView1({ c })}>
-            <Text style={dynamicStyles.paymentVerificationText6({ c })}>Extension #{extension.id} · Reservation #{extension.reservationId}</Text>
-            <Text style={s.muted}>{extension.riderName} · {extension.additionalMinutes} minutes · PHP {Number(extension.additionalFee).toFixed(2)}</Text>
-            {extension.status === 'Pending' ? (
-              <View style={{ flexDirection:'row', gap:8, marginTop:10 }}>
-                <Btn small label="Approve" onPress={() => handleExtensionAction(extension,'verify')} />
-                <Btn small variant="outline" label="Reject" onPress={() => handleExtensionAction(extension,'reject')} />
+    <Layout cur="financePending">
+      <View style={[s.card, staticStyles.financeDashboardTabs]}>
+        {[
+          { id:'pending', label:'Pending', count:pendingCount },
+          { id:'extension', label:'Extension', count:extensionCount },
+          { id:'refund', label:'Refund', count:refundCount },
+        ].map((tab) => {
+          const selected = activePaymentTab === tab.id;
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              accessibilityRole="tab"
+              accessibilityState={{ selected }}
+              onPress={() => setActivePaymentTab(tab.id)}
+              style={[staticStyles.financeDashboardTab, {
+                borderColor:selected ? c.gold : c.line,
+                backgroundColor:selected ? c.goldBg : c.card,
+              }]}
+            >
+              <Text style={{ color:selected ? c.text : c.muted, fontWeight:selected ? '800' : '600' }}>{tab.label}</Text>
+              <View style={[staticStyles.financeDashboardTabCount, { backgroundColor:tab.count ? c.badBg : c.soft }]}>
+                <Text style={{ color:tab.count ? c.bad : c.muted, fontSize:12, fontWeight:'800' }}>{tab.count}</Text>
               </View>
-            ) : <Tag kind={extension.status === 'Approved' ? 'ok' : 'bad'} text={extension.status} />}
-          </View>
-        )) : <Text style={s.empty}>No extension payments are awaiting review.</Text>}
+            </TouchableOpacity>
+          );
+        })}
       </View>
+      {activePaymentTab === 'pending' ? (
+        <FinanceReservations
+          pending={pendingPayments}
+          busy={busy}
+          onRefresh={viewPayments}
+          onViewReceipt={viewReceipt}
+          onProcess={processPayment}
+        />
+      ) : null}
+      {activePaymentTab === 'extension' ? (
       <View style={[s.card, { marginTop:16 }]}>
-        <Text style={s.cardTitle}>Refund Activity</Text>
-        <Text style={s.cardSub}>Automatic 50% refunds for reservations missed beyond the 10-minute grace period.</Text>
+        <Text style={s.cardTitle}>Extension Requests</Text>
+        {pendingExtensions.length ? pendingExtensions.map((extension) => (
+          <View key={extension.id} style={dynamicStyles.paymentVerificationView1({ c })}>
+            <Text style={dynamicStyles.paymentVerificationText6({ c })}>Reservation #{extension.reservationId} · Locker {extension.slot}</Text>
+            <Text style={s.muted}>{extension.riderName} · {extension.date} · {extension.time}</Text>
+            <Text style={s.muted}>Additional time: {extension.additionalMinutes} minutes</Text>
+            <Text style={s.muted}>Payment amount: PHP {Number(extension.paymentAmount || extension.additionalFee).toFixed(2)}</Text>
+            {extension.paymentId ? (
+              <View style={{ marginTop:10 }}>
+                <Btn small variant="outline" icon="image-outline" label="View payment proof" onPress={() => viewReceipt({ id:extension.paymentId })} />
+              </View>
+            ) : null}
+            <View style={{ flexDirection:'row', gap:8, marginTop:10 }}>
+              <Btn small label="Approve" onPress={() => handleExtensionAction(extension,'verify')} />
+              <Btn small variant="outline" label="Reject" onPress={() => handleExtensionAction(extension,'reject')} />
+            </View>
+          </View>
+        )) : <Text style={s.empty}>No extension requests awaiting verification.</Text>}
+      </View>
+      ) : null}
+      {activePaymentTab === 'refund' ? (
+
+      <View style={[s.card, { marginTop:16 }]}>
+        <Text style={s.cardTitle}>Refund Requests</Text>
+        {!pendingRefunds.length ? <Text style={s.empty}>No refund requests awaiting verification.</Text> : null}
         {refunds.length ? refunds.map((refund) => (
           <View key={refund.id} style={dynamicStyles.paymentVerificationView1({ c })}>
             <View style={dynamicStyles.paymentVerificationView2({ c })}>
@@ -134,8 +174,9 @@ function Finance() {
               <Btn small variant="outline" label="View Details" onPress={() => { setRefundDetail(refund); setRefundReason(refund.rejectionReason || ''); setTransactionReference(refund.transactionReference || ''); }} />
             </View>
           </View>
-        )) : <Text style={s.empty}>No refund activity.</Text>}
+        )) : null}
       </View>
+      ) : null}
       <InfoModal visible={!!receiptPayment} title={`Payment #${receiptPayment?.id || ''} receipt`} onClose={() => setReceiptPayment(null)}>
         {receiptLoading ? <Text style={s.muted}>Loading receipt…</Text> : null}
         {receiptImage ? <Image source={{ uri: receiptImage }} style={staticStyles.financeDashboardImage2} resizeMode="contain" /> : null}

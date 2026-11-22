@@ -10,7 +10,7 @@ function FinanceReservations({ pending, busy, onRefresh, onViewReceipt, onProces
   return (
     <View style={s.card}>
       <View style={staticStyles.financeHistoryView1}>
-        <View><Text style={s.cardTitle}>Pending payments</Text><Text style={s.cardSub}>Review the oldest submissions within one business day.</Text></View>
+        <View><Text style={s.cardTitle}>Pending payments</Text></View>
         <Btn small variant="outline" icon="refresh-outline" label="Refresh" onPress={onRefresh} />
       </View>
       {pending.length ? pending.map((payment) => (
@@ -21,7 +21,7 @@ function FinanceReservations({ pending, busy, onRefresh, onViewReceipt, onProces
           onViewReceipt={onViewReceipt}
           onProcess={onProcess}
         />
-      )) : <Text style={s.empty}>No payments are awaiting review.</Text>}
+      )) : <Text style={s.empty}>No pending reservation payments.</Text>}
     </View>
   );
 }

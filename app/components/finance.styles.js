@@ -2,6 +2,9 @@ import { StyleSheet } from 'react-native';
 
 const staticStyles = StyleSheet.create({
   financeDashboardImage2: { width: '100%', height: 420 },
+  financeDashboardTabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 },
+  financeDashboardTab: { flex: 1, minWidth: 84, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 8, paddingVertical: 8, borderWidth: 1, borderRadius: 12 },
+  financeDashboardTabCount: { minWidth: 22, height: 22, paddingHorizontal: 5, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   financeHistoryView1: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 10 },
   financeHistoryView3: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   financeHistoryText4: { marginTop: 6 },

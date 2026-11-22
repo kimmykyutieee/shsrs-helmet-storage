@@ -15,7 +15,7 @@ const NAV = [
   ['guide', 'book-outline', 'Access Guide', 'Guide'],
 ];
 const FINANCE_NAV = [
-  ['financePending', 'wallet-outline', 'Pending Payments', 'Pending'],
+  ['financePending', 'wallet-outline', 'Payment', 'Payment'],
   ['financeHistory', 'time-outline', 'History', 'History'],
 ];
 const SECURITY_NAV = [

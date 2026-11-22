@@ -108,6 +108,7 @@ const deviceAuth = (req, res, next) => {
 };
 const adminOnly = (req, res, next) => (req.admin && !req.finance && !req.security ? next() : bad(res, 'Admins only.', 403));
 const financeOnly = (req, res, next) => (req.finance && !req.admin && !req.security ? next() : bad(res, 'Finance access only.', 403));
+const financeOrAdmin = (req, res, next) => ((req.finance && !req.admin && !req.security) || (req.admin && !req.finance && !req.security) ? next() : bad(res, 'Finance or Admin access only.', 403));
 const riderOrAdmin = (req, res, next) => (!req.finance && !req.security ? next() : bad(res, 'This feature is not available to your account role.', 403));
 const scannerAccess = (req, res, next) => (req.admin || req.security ? next() : bad(res, 'Security or Admin access only.', 403));
 const token = (uid) => jwt.sign({ uid }, SECRET, { expiresIn: '30d' });
@@ -298,7 +299,7 @@ app.get('/api/data', auth, wrap(async (req, res) => {
 
     const [slotRows] = await pool.query('SELECT slot_no AS slot, is_blocked AS blocked FROM slots ORDER BY slot_no');
     const [slotReservations] = await pool.query('SELECT slot_no AS slot, res_date AS date, LEFT(res_time,5) AS time, status FROM reservations ORDER BY res_date, res_time');
-    const [log] = await pool.query('SELECT id,reservation_id AS rid, slot_no AS slot, action AS act, ts FROM access_log ORDER BY id DESC LIMIT 50');
+    const [log] = await pool.query("SELECT id,reservation_id AS rid, slot_no AS slot, action AS act, ts FROM access_log WHERE action IN ('Stored','Retrieved') ORDER BY id DESC LIMIT 50");
     const slots = slotRows.map((slot) => ({ ...slot, blocked: !!slot.blocked }));
     return res.json({
       me: req.uid, users: [currentUser], res: [],
@@ -320,8 +321,8 @@ app.get('/api/data', auth, wrap(async (req, res) => {
   const slots = slotRows.map((slot) => ({ ...slot, blocked: !!slot.blocked }));
   const blocked = slots.filter((slot) => slot.blocked).map((slot) => slot.slot);
   const [log] = req.admin
-    ? await pool.query('SELECT id,reservation_id AS rid,user_id AS uid,slot_no AS slot,action AS act,ts FROM access_log ORDER BY id DESC')
-    : await pool.query('SELECT id,reservation_id AS rid,user_id AS uid,slot_no AS slot,action AS act,ts FROM access_log WHERE user_id=? ORDER BY id DESC', [req.uid]);
+    ? await pool.query("SELECT id,reservation_id AS rid,user_id AS uid,slot_no AS slot,action AS act,ts FROM access_log WHERE action IN ('Stored','Retrieved') ORDER BY id DESC")
+    : await pool.query("SELECT id,reservation_id AS rid,user_id AS uid,slot_no AS slot,action AS act,ts FROM access_log WHERE user_id=? AND action IN ('Stored','Retrieved') ORDER BY id DESC", [req.uid]);
   const [payments] = await pool.query('SELECT id,reservation_id AS reservationId,amount,status,rejection_reason AS rejectionReason,submitted_at AS submittedAt,processed_at AS processedAt FROM payments WHERE user_id=? ORDER BY submitted_at DESC', [req.uid]);
   const [notifications] = await pool.query(
     'SELECT id,title,message,type,reservation_id AS reservationId,refund_id AS refundId,created_at AS createdAt,is_read AS isRead FROM notifications WHERE user_id=? ORDER BY created_at DESC,id DESC',
@@ -457,7 +458,7 @@ app.post('/api/reservations/:id/payments', auth, riderOrAdmin, upload.single('re
 /* ---------- finance payment review ---------- */
 app.get('/api/finance/payments', auth, financeOnly, wrap(async (req, res) => {
   const [payments] = await pool.query(
-    "SELECT p.id, p.reservation_id AS reservationId, p.user_id AS studentId, u.name AS studentName, r.slot_no AS slot, r.res_date AS date, LEFT(r.res_time,5) AS time, p.amount, p.status, p.submitted_at AS submittedAt FROM payments p JOIN users u ON u.id=p.user_id JOIN reservations r ON r.id=p.reservation_id WHERE p.status='Pending' ORDER BY p.submitted_at ASC",
+    "SELECT p.id, p.reservation_id AS reservationId, p.user_id AS studentId, u.name AS studentName, r.slot_no AS slot, r.res_date AS date, LEFT(r.res_time,5) AS time, p.amount, p.status, p.submitted_at AS submittedAt FROM payments p JOIN users u ON u.id=p.user_id JOIN reservations r ON r.id=p.reservation_id WHERE p.status='Pending' AND p.payment_type='Original' AND r.status='Pending' ORDER BY p.submitted_at ASC",
   );
   res.json({ payments });
 }));
@@ -471,9 +472,20 @@ app.get('/api/finance/payments/:id/receipt', auth, financeOnly, wrap(async (req,
   res.json({ receipt: receiptUrl(req, payment.receipt) });
 }));
 
-app.get('/api/finance/payment-history', auth, financeOnly, wrap(async (req, res) => {
+app.get('/api/finance/payment-history', auth, financeOrAdmin, wrap(async (req, res) => {
+  const includePending = req.admin && req.query.includePending === '1';
+  const statusFilter = includePending ? "p.status IN ('Pending','Verified','Rejected')" : "p.status IN ('Verified','Rejected')";
   const [payments] = await pool.query(
-    "SELECT p.id, p.reservation_id AS reservationId, p.user_id AS studentId, u.name AS studentName, r.slot_no AS slot, r.res_date AS date, LEFT(r.res_time,5) AS time, p.amount, p.status, p.submitted_at AS submittedAt, p.processed_at AS processedAt FROM payments p JOIN users u ON u.id=p.user_id JOIN reservations r ON r.id=p.reservation_id WHERE p.status IN ('Verified','Rejected') ORDER BY p.processed_at DESC",
+    `SELECT p.id, p.reservation_id AS reservationId, p.user_id AS studentId, u.name AS studentName,
+            r.slot_no AS slot, r.res_date AS date, LEFT(r.res_time,5) AS time,
+            p.amount, p.status, p.payment_type AS paymentType,p.extension_id AS extensionId,
+            e.additional_minutes AS additionalMinutes,p.submitted_at AS submittedAt,p.processed_at AS processedAt
+     FROM payments p
+     JOIN users u ON u.id=p.user_id
+     JOIN reservations r ON r.id=p.reservation_id
+     LEFT JOIN reservation_extensions e ON e.payment_id=p.id
+     WHERE ${statusFilter}
+     ORDER BY COALESCE(p.processed_at,p.submitted_at) DESC`,
   );
   res.json({ payments });
 }));
@@ -614,11 +626,14 @@ app.get('/api/finance/extensions', auth, financeOnly, wrap(async (req, res) => {
             e.additional_minutes AS additionalMinutes,e.additional_fee AS additionalFee,
             e.status,e.rejection_reason AS rejectionReason,e.payment_id AS paymentId,
             LEFT(e.previous_end_time,5) AS previousEndTime,LEFT(e.approved_end_time,5) AS approvedEndTime,
-            p.status AS paymentStatus,p.receipt,e.created_at AS createdAt
+            r.slot_no AS slot,r.res_date AS date,LEFT(r.res_time,5) AS time,
+            p.status AS paymentStatus,p.amount AS paymentAmount,e.created_at AS createdAt
      FROM reservation_extensions e
      JOIN users u ON u.id=e.user_id
-     LEFT JOIN payments p ON p.id=e.payment_id
-     WHERE e.status='Pending' OR p.status='Pending'
+     JOIN reservations r ON r.id=e.reservation_id
+     JOIN payments p ON p.id=e.payment_id
+     WHERE e.status='Pending' AND p.status='Pending' AND p.payment_type='Extension'
+       AND r.status IN ('Confirmed','Active')
      ORDER BY e.created_at ASC`,
   );
   res.json({ extensions });
@@ -637,7 +652,7 @@ app.post('/api/finance/extensions/:id/:action', auth, financeOnly, wrap(async (r
 }));
 
 /* ---------- refunds and notifications ---------- */
-app.get('/api/finance/refunds', auth, financeOnly, wrap(async (req, res) => {
+app.get('/api/finance/refunds', auth, financeOrAdmin, wrap(async (req, res) => {
   await processReservationAutomation();
   const [refunds] = await pool.query(
     `SELECT rf.id,rf.reservation_id AS reservationId,rf.user_id AS riderId,u.name AS riderName,
@@ -648,7 +663,7 @@ app.get('/api/finance/refunds', auth, financeOnly, wrap(async (req, res) => {
             rf.refund_amount AS refundAmount,rf.non_refundable_amount AS nonRefundableAmount,
             rf.status,rf.rejection_reason AS rejectionReason,rf.transaction_reference AS transactionReference,
             rf.approval_timestamp AS approvalTimestamp,rf.completion_timestamp AS completionTimestamp,
-            rf.expiration_timestamp AS expirationTimestamp,
+            rf.expiration_timestamp AS expirationTimestamp,rf.created_at AS createdAt,
             approver.name AS approverName
      FROM refunds rf
      JOIN reservations r ON r.id=rf.reservation_id
@@ -1038,16 +1053,38 @@ app.delete('/api/reservations/:id', auth, riderOrAdmin, wrap(async (req, res) =>
 /* ---------- cabinet scanner ---------- */
 /* ---------- cabinet scanner + ESP32 unlock queue ---------- */
 app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
-  const parsed = parseCabinetQr(String(req.body.code || '').trim());
-  const out = (ok, title, msg, extra = {}) =>
-    res.json({ ok, title, msg, ...extra });
+  const code = String(req.body.code || '').trim();
+  const parsed = parseCabinetQr(code);
+  const recordScanAttempt = async (scanResult, reservation = null) => {
+    if (!req.security) return;
+    await pool.query(
+      `INSERT INTO access_log
+       (reservation_id,user_id,slot_no,action,ts,scan_result,scan_code,scanned_by)
+       VALUES (?,?,?,'Scan Attempt',?,?,?,?)`,
+      [
+        reservation ? reservation.id : null,
+        reservation ? reservation.userId : null,
+        reservation ? reservation.slotNo : null,
+        Date.now(),
+        scanResult,
+        code.slice(0, 2048),
+        req.uid,
+      ],
+    );
+  };
+  const out = async (ok, title, msg, extra = {}, scanResult = 'DENIED', reservation = null) => {
+    if (scanResult !== 'VALID') await recordScanAttempt(scanResult, reservation);
+    return res.json({ ok, title, msg, scanResult, ...extra });
+  };
 
   if (!parsed || !verifyCabinetQrSignature(parsed, QR_SECRET)) {
     return out(false, 'Invalid QR code',
-      'This QR code is invalid, altered, or not signed by SHSRS. Scan the latest reservation QR code from the app.');
+      'This QR code is invalid, altered, or not signed by SHSRS. Scan the latest reservation QR code from the app.',
+      {}, 'INVALID');
   }
 
   if (!DEVICE_TOKEN) {
+    await recordScanAttempt('ERROR');
     return bad(res, 'ESP32 is not configured. Set ESP32_DEVICE_TOKEN in server/.env; the cabinet remains locked.', 503);
   }
 
@@ -1076,7 +1113,7 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
 
     if (!r) {
       await connection.rollback();
-      return out(false, 'Access denied', 'Reservation not found.');
+      return out(false, 'Access denied', 'Reservation not found.', {}, 'INVALID');
     }
 
     if (
@@ -1087,19 +1124,22 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
     ) {
       await connection.rollback();
       return out(false, 'Invalid QR code',
-        'The QR details do not match this reservation. The cabinet remains locked.');
+        'The QR details do not match this reservation. The cabinet remains locked.',
+        {}, 'INVALID', { id: r.id, userId: r.user_id, slotNo: r.slot_no });
     }
 
     if (!['Confirmed','Active','Used'].includes(r.status) || !r.payment_verified) {
       await connection.rollback();
       return out(false, 'Payment not verified',
-        'Finance must verify payment before this reservation can be used.');
+        'Finance must verify payment before this reservation can be used.',
+        {}, 'DENIED', { id: r.id, userId: r.user_id, slotNo: r.slot_no });
     }
 
     if (r.is_blocked) {
       await connection.rollback();
       return out(false, 'Cabinet unavailable',
-        'This cabinet slot is under maintenance.');
+        'This cabinet slot is under maintenance.',
+        {}, 'DENIED', { id: r.id, userId: r.user_id, slotNo: r.slot_no });
     }
 
     const [[dbTime]] = await connection.query('SELECT UNIX_TIMESTAMP(NOW()) * 1000 AS nowMs');
@@ -1112,13 +1152,15 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
     if (now < open) {
       await connection.rollback();
       return out(false, 'Too early',
-        `Slot ${r.slot_no} opens at ${ft(r.time)} on ${fd(r.date)}.`);
+        `Slot ${r.slot_no} opens at ${ft(r.time)} on ${fd(r.date)}.`,
+        {}, 'DENIED', { id: r.id, userId: r.user_id, slotNo: r.slot_no });
     }
 
     if (now > validUntil) {
       await connection.rollback();
       return out(false, 'Reservation expired',
-        'The reservation and 10-minute grace period have ended.');
+        'The reservation and 10-minute grace period have ended.',
+        {}, 'EXPIRED', { id: r.id, userId: r.user_id, slotNo: r.slot_no });
     }
 
     const stored = r.stored ? 0 : 1;
@@ -1134,8 +1176,11 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
     }
 
     await connection.query(
-      'INSERT INTO access_log (reservation_id,user_id,slot_no,action,ts) VALUES (?,?,?,?,?)',
-      [r.id, r.user_id, r.slot_no, action, now]
+      `INSERT INTO access_log
+       (reservation_id,user_id,slot_no,action,ts,scan_result,scan_code,scanned_by)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [r.id, r.user_id, r.slot_no, action, now, req.security ? 'VALID' : null,
+        req.security ? code.slice(0, 2048) : null, req.security ? req.uid : null]
     );
 
     const [command] = await connection.query(
@@ -1150,12 +1195,20 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
     return out(true, 'Reservation verified',
       `Slot ${r.slot_no}: ${action.toLowerCase()} recorded. The cabinet unlock command was queued.`,
       {
+        reservation: {
+          id: r.id,
+          slot: r.slot_no,
+          date: String(r.date).slice(0, 10),
+          time: String(r.time).slice(0, 5),
+          endTime: String(r.endTime || '').slice(0, 5),
+        },
+        action,
         hardware: {
           commandId: command.insertId,
           deviceId: DEVICE_ID,
           unlockDurationMs: SERVO_UNLOCK_MS
         }
-      }
+      }, 'VALID'
     );
 
   } catch (e) {
@@ -1205,6 +1258,106 @@ app.put('/api/admin/slots/:n/toggle', auth, adminOnly, wrap(async (req, res) => 
 app.delete('/api/admin/reservations/:id', auth, adminOnly, wrap(async (req, res) => {
   await pool.query('DELETE FROM reservations WHERE id=?', [parseInt(req.params.id, 10)]);
   res.json({ ok: true });
+}));
+
+app.put('/api/admin/users/:id', auth, adminOnly, wrap(async (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  const name = String(req.body.name || '').trim();
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const role = String(req.body.role || '');
+  if (!Number.isInteger(userId) || userId < 1) return bad(res, 'User not found.', 404);
+  if (!name || name.length > 100) return bad(res, 'Enter a name of 1 to 100 characters.');
+  if (!okMail(email) || email.length > 150) return bad(res, 'Enter a valid email address.');
+  if (!['Admin','Finance','Security','Rider'].includes(role)) return bad(res, 'Choose a valid user role.');
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[user]] = await connection.query(
+      'SELECT id,is_admin,is_finance,is_security FROM users WHERE id=? FOR UPDATE',
+      [userId],
+    );
+    if (!user) {
+      await connection.rollback();
+      return bad(res, 'User not found.', 404);
+    }
+    if ((user.is_admin && role !== 'Admin') || (!user.is_admin && role === 'Admin')) {
+      await connection.rollback();
+      return bad(res, 'Administrator roles cannot be reassigned.', 409);
+    }
+    const [[existing]] = await connection.query(
+      'SELECT id FROM users WHERE email=? AND id<>? LIMIT 1',
+      [email, userId],
+    );
+    if (existing) {
+      await connection.rollback();
+      return bad(res, 'That email is already in use.', 409);
+    }
+
+    await connection.query(
+      'UPDATE users SET name=?,email=?,is_finance=?,is_security=? WHERE id=?',
+      [
+        name,
+        email,
+        user.is_admin ? user.is_finance : role === 'Finance' ? 1 : 0,
+        user.is_admin ? user.is_security : role === 'Security' ? 1 : 0,
+        userId,
+      ],
+    );
+    await connection.commit();
+    res.json({ ok: true });
+  } catch (e) {
+    await connection.rollback();
+    if (e.code === 'ER_DUP_ENTRY') return bad(res, 'That email is already in use.', 409);
+    throw e;
+  } finally {
+    connection.release();
+  }
+}));
+
+app.delete('/api/admin/users/:id', auth, adminOnly, wrap(async (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(userId) || userId < 1) return bad(res, 'User not found.', 404);
+  if (userId === req.uid) return bad(res, 'You cannot delete the account you are using.', 409);
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[user]] = await connection.query('SELECT id,is_admin FROM users WHERE id=? FOR UPDATE', [userId]);
+    if (!user) {
+      await connection.rollback();
+      return bad(res, 'User not found.', 404);
+    }
+    if (user.is_admin) {
+      await connection.rollback();
+      return bad(res, 'Administrator accounts cannot be deleted.', 409);
+    }
+
+    const [[related]] = await connection.query(
+      `SELECT
+         EXISTS(SELECT 1 FROM reservations WHERE user_id=?) AS reservationRecords,
+         EXISTS(SELECT 1 FROM payments WHERE user_id=? OR processed_by=?) AS paymentRecords,
+         EXISTS(SELECT 1 FROM reservation_extensions WHERE user_id=? OR processed_by=?) AS extensionRecords,
+         EXISTS(SELECT 1 FROM refunds WHERE user_id=? OR finance_approver_id=?) AS refundRecords,
+         EXISTS(SELECT 1 FROM notifications WHERE user_id=?) AS notificationRecords,
+         EXISTS(SELECT 1 FROM access_log WHERE user_id=? OR scanned_by=?) AS accessRecords,
+         EXISTS(SELECT 1 FROM esp32_commands WHERE user_id=?) AS cabinetCommands`,
+      [userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId],
+    );
+    if (Object.values(related).some(Boolean)) {
+      await connection.rollback();
+      return bad(res, 'This user has related reservation, payment, extension, refund, notification, or cabinet activity records and cannot be deleted.', 409);
+    }
+
+    await connection.query('DELETE FROM users WHERE id=? AND is_admin=0', [userId]);
+    await connection.commit();
+    res.json({ ok: true });
+  } catch (e) {
+    await connection.rollback();
+    throw e;
+  } finally {
+    connection.release();
+  }
 }));
 
 app.put('/api/admin/users/:id/finance', auth, adminOnly, wrap(async (req, res) => {
