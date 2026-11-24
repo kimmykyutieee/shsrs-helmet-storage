@@ -5,7 +5,7 @@ import { cancelAnyReservation } from '../../services/reservationService';
 import { isPast, fd, ft } from '../../shared/utils/date';
 import { shareText, confirmBox } from '../../shared/utils/actions';
 import { WEB } from '../../shared/constants/theme';
-import { Layout, Btn, Tag } from '../../components';
+import { Layout, Btn, Tag, IconBox } from '../../components';
 import { staticStyles, dynamicStyles } from '../../components/admin.styles';
 
 function AdminReservations() {
@@ -18,7 +18,7 @@ function AdminReservations() {
   });
   const exportCSV = async () => {
     const quote = (value) => '"' + String(value).replace(/"/g, '""') + '"';
-    const csv = ['ID,Rider,Slot,Date,Time,Stored', ...db.res.map((reservation) => [
+    const csv = ['ID,Rider,Locker,Date,Time,Stored', ...db.res.map((reservation) => [
       reservation.id, quote(userName(reservation.uid)), reservation.slot, reservation.date, reservation.time,
       reservation.stored ? 'yes' : 'no',
     ].join(','))].join('\n');
@@ -34,24 +34,25 @@ function AdminReservations() {
 
   return (
     <Layout cur="adminReservations" title="Reservations" subtitle="Review and manage reservations.">
-      <View style={s.card}>
+      <View style={staticStyles.adminReservationsList}>
         <View style={staticStyles.adminReservationsView1}>
-          <View><Text style={s.cardTitle}>All reservations</Text><Text style={s.cardSub}>{reservations.length} total</Text></View>
+          <View><Text style={s.cardTitle}>All reservations</Text><Text style={s.cardSub}>Review bookings and locker status</Text></View>
           <Btn small variant="outline" icon="download-outline" label="Export CSV" onPress={exportCSV} />
         </View>
         {reservations.length ? reservations.map((reservation, index) => (
-          <View key={reservation.id} style={dynamicStyles.adminReservationsView2({ c, index, reservations })}>
+          <View key={reservation.id} style={[s.card, staticStyles.adminReservationCard]}>
+            <View style={[staticStyles.adminReservationIcon, { backgroundColor:c.goldBg }]}><Text style={{ color:c.gold, fontWeight:'800' }}>{String(reservation.slot).padStart(2,'0')}</Text></View>
             <View style={staticStyles.adminReservationsView3}>
-              <Text style={dynamicStyles.adminReservationsText4({ c })}>Slot {reservation.slot} · {userName(reservation.uid)} <Text style={dynamicStyles.adminReservationsText5({ c })}>#{reservation.id}</Text></Text>
-              <Text style={s.muted}>{fd(reservation.date)} · {ft(reservation.time)}</Text>
-              <View style={[s.row, staticStyles.adminReservationsView6]}>
-                {reservation.stored ? <Tag kind="gold" text="Stored" /> : null}
+              <View style={staticStyles.adminReservationTitleRow}>
+                <Text style={dynamicStyles.adminReservationsText4({ c })}>Locker {reservation.slot}</Text>
                 <Tag kind={isPast(reservation) ? 'mute' : 'ok'} text={isPast(reservation) ? 'Completed' : 'Upcoming'} />
               </View>
+              <Text style={s.muted}>{userName(reservation.uid)} · Reservation #{reservation.id}</Text>
+              <Text style={[s.muted, staticStyles.adminReservationDate]}>{fd(reservation.date)} · {ft(reservation.time)}{reservation.stored ? ' · Helmet stored' : ''}</Text>
             </View>
-            <Btn small variant="outline" icon="trash-outline" onPress={() => cancel(reservation.id)} />
+            <Btn small variant="outline" icon="trash-outline" label="Cancel" onPress={() => cancel(reservation.id)} />
           </View>
-        )) : <Text style={s.empty}>No reservations yet.</Text>}
+        )) : <View style={[s.card, staticStyles.adminEmptyState]}><IconBox icon="calendar-outline" tone="gold" size={48} /><Text style={s.empty}>No reservations yet.</Text></View>}
       </View>
     </Layout>
   );

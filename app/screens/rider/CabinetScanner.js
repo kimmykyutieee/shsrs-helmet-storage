@@ -17,6 +17,7 @@ function Scan() {
   const [res, setRes] = useState(null);
   const [refreshWarning, setRefreshWarning] = useState('');
   const [cam, setCam] = useState(false);
+  const [securityCameraFacing, setSecurityCameraFacing] = useState('back');
   const [perm, askPerm] = useCameraPermissions();
   const lock = useRef(false);
   const lastSecurityCode = useRef(null);
@@ -90,7 +91,7 @@ function Scan() {
           : 'SCANNER ERROR';
 
   return (
-    <Layout cur={me.security ? 'securityScan' : 'scan'} title={me.security ? 'Camera Scanner' : 'Cabinet Scanner'}>
+    <Layout cur={me.security ? 'securityScan' : 'scan'} title={me.security ? 'Camera Scanner' : 'Locker Scanner'}>
       <View style={dynamicStyles.cabinetScannerView1({ wide })}>
         <View style={dynamicStyles.cabinetScannerView2({ wide })}>
           <View style={s.card}>
@@ -119,8 +120,11 @@ function Scan() {
                 ) : null}
                 {cam ? (
                   <View style={[dynamicStyles.cabinetScannerView4({ GOLD }), { height: Math.min(560, Math.max(360, windowHeight * 0.55)) }]}>
-                    <CameraView style={staticStyles.cabinetScannerCameraView5} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onCode} />
+                    <CameraView key={securityCameraFacing} style={staticStyles.cabinetScannerCameraView5} facing={securityCameraFacing} barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onCode} />
                   </View>
+                ) : null}
+                {cam ? (
+                  <Btn full variant="outline" icon="camera-reverse-outline" label={`Use ${securityCameraFacing === 'back' ? 'front' : 'back'} camera`} onPress={() => setSecurityCameraFacing((facing) => facing === 'back' ? 'front' : 'back')} />
                 ) : null}
                 <Btn full icon={cam ? 'close' : 'camera-outline'} label={cam ? 'Close camera' : 'Scan with camera'} onPress={() => (cam ? setCam(false) : openCam())} />
               </>
@@ -141,7 +145,7 @@ function Scan() {
                 </View>
                 {up.length ? (
                   <View style={[s.row, staticStyles.cabinetScannerView12]}>
-                    {up.map((r) => <Btn key={r.id} small variant="outline" label={`#${r.id} · Slot ${r.slot}`} onPress={() => { setV(String(r.id)); doScan(r.id); }} />)}
+                    {up.map((r) => <Btn key={r.id} small variant="outline" label={`#${r.id} · Locker ${r.slot}`} onPress={() => { setV(String(r.id)); doScan(r.id); }} />)}
                   </View>
                 ) : null}
                 {res ? (

@@ -12,7 +12,7 @@ function Home() {
   const wide = width >= 900;
   const features = [
     ['qr-code-outline', 'Verified QR access', 'Finance verification is required before a reservation QR code is released.'],
-    ['grid-outline', '12 smart slots', 'Pick a slot, date and time. Live availability prevents double bookings.'],
+    ['grid-outline', '12 secure lockers', 'Choose a locker, date and time. Live availability prevents double bookings.'],
     ['notifications-outline', 'Smart reminders', 'See your next reservation and same-day reminders on your dashboard.'],
     ['shield-checkmark-outline', 'Admin controls', 'Maintenance mode, full access logs and CSV exports for administrators.'],
   ];
@@ -51,14 +51,14 @@ function Home() {
                     Secure helmet storage, <Text style={dynamicStyles.homeText16({ GOLD })}>reserved in seconds.</Text>
                   </Text>
                   <Text style={dynamicStyles.homeText17({ wide })}>
-                    Manage and reserve safety helmets efficiently. Book a cabinet slot, submit payment for review, and access your QR code after verification.
+                    Manage and reserve safety helmets efficiently. Book a locker, submit payment for review, and access your QR code after verification.
                   </Text>
                   <View style={staticStyles.homeView18}>
                     <Btn variant="gold" icon="arrow-forward" label="Reserve now" onPress={() => nav(db.me ? 'reservations' : 'login')} />
                     <Btn variant="ghostDark" icon="book-outline" label="System manual" onPress={() => setInfo('manual')} />
                   </View>
                   <View style={dynamicStyles.homeView19({ wide })}>
-                    {[['12', 'Secure slots'], ['QR', 'One-scan access'], ['Live', 'Availability']].map(([a, b]) => (
+                    {[['12', 'Secure lockers'], ['QR', 'One-scan access'], ['Live', 'Availability']].map(([a, b]) => (
                       <View key={b}><Text style={staticStyles.homeText20}>{a}</Text><Text style={staticStyles.homeText21}>{b}</Text></View>
                     ))}
                   </View>
@@ -76,7 +76,7 @@ function Home() {
 
           <View style={staticStyles.homeView25}>
             <View style={dynamicStyles.homeView26({ pad2, wide })}>
-              <Text style={staticStyles.homeText27}>WHY SHSRS</Text>
+              <Text style={staticStyles.homeText27}>WHY HELMATE</Text>
               <Text style={dynamicStyles.homeText28({ wide })}>Everything you need to store a helmet safely</Text>
               <View style={staticStyles.homeView29}>
                 {features.map(([ico, t, d]) => (

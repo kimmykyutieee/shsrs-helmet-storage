@@ -234,6 +234,7 @@ const processReservationAutomation = async () => {
 
 app.get('/api/health', wrap(async (req, res) => {
   await pool.query('SELECT 1 FROM slots LIMIT 1');   // proves MySQL is up AND schema.sql was imported
+  await pool.query('SELECT 1 FROM esp32_commands LIMIT 1'); // server feature table from migration 005
   res.json({ ok: true, db: 'connected' });
 }));
 
@@ -769,7 +770,7 @@ app.get('/api/reservations/:id/qr', auth, riderOrAdmin, wrap(async (req, res) =>
   const reservationId = parseInt(req.params.id, 10);
   const [[reservation]] = Number.isInteger(reservationId)
     ? await pool.query(
-        "SELECT id,user_id,slot_no,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,status,grace_deadline FROM reservations WHERE id=? AND (user_id=? OR ?=1)",
+        "SELECT id,user_id,slot_no,res_date AS date,LEFT(res_time,5) AS time,status FROM reservations WHERE id=? AND (user_id=? OR ?=1)",
         [reservationId, req.uid, req.admin ? 1 : 0]
       )
     : [[]];
@@ -784,15 +785,11 @@ app.get('/api/reservations/:id/qr', auth, riderOrAdmin, wrap(async (req, res) =>
   if (!['Confirmed','Active','Used'].includes(reservation.status) || !payment) {
     return bad(res, 'Finance must verify payment before QR access.', 403);
   }
-  const [[dbTime]] = await pool.query('SELECT UNIX_TIMESTAMP(NOW()) * 1000 AS nowMs');
-  const nowMs = Number(dbTime.nowMs);
-  const startMs = dt(reservation.date, reservation.time).getTime();
-  const endMs = dt(reservation.date, reservation.endTime || '21:00').getTime();
-  const graceMs = reservation.grace_deadline
-    ? new Date(reservation.grace_deadline).getTime()
-    : endMs + 10 * 60000;
-  if (nowMs < startMs) return bad(res, 'The reservation QR code is not valid before the approved starting time.', 403);
-  if (nowMs > graceMs) return bad(res, 'The reservation QR code has expired.', 403);
+  const [[operatingTime]] = await pool.query('SELECT HOUR(NOW()) * 60 + MINUTE(NOW()) AS currentMinutes');
+  const currentMinutes = Number(operatingTime.currentMinutes);
+  if (currentMinutes < 360 || currentMinutes > 1260) {
+    return bad(res, 'Reservation QR codes can be viewed between 6:00 AM and 9:00 PM.', 403);
+  }
 
   res.json({
     code: createCabinetQr({
@@ -1264,26 +1261,17 @@ app.put('/api/admin/users/:id', auth, adminOnly, wrap(async (req, res) => {
   const userId = parseInt(req.params.id, 10);
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').trim().toLowerCase();
-  const role = String(req.body.role || '');
   if (!Number.isInteger(userId) || userId < 1) return bad(res, 'User not found.', 404);
   if (!name || name.length > 100) return bad(res, 'Enter a name of 1 to 100 characters.');
   if (!okMail(email) || email.length > 150) return bad(res, 'Enter a valid email address.');
-  if (!['Admin','Finance','Security','Rider'].includes(role)) return bad(res, 'Choose a valid user role.');
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [[user]] = await connection.query(
-      'SELECT id,is_admin,is_finance,is_security FROM users WHERE id=? FOR UPDATE',
-      [userId],
-    );
+    const [[user]] = await connection.query('SELECT id FROM users WHERE id=? FOR UPDATE', [userId]);
     if (!user) {
       await connection.rollback();
       return bad(res, 'User not found.', 404);
-    }
-    if ((user.is_admin && role !== 'Admin') || (!user.is_admin && role === 'Admin')) {
-      await connection.rollback();
-      return bad(res, 'Administrator roles cannot be reassigned.', 409);
     }
     const [[existing]] = await connection.query(
       'SELECT id FROM users WHERE email=? AND id<>? LIMIT 1',
@@ -1294,16 +1282,7 @@ app.put('/api/admin/users/:id', auth, adminOnly, wrap(async (req, res) => {
       return bad(res, 'That email is already in use.', 409);
     }
 
-    await connection.query(
-      'UPDATE users SET name=?,email=?,is_finance=?,is_security=? WHERE id=?',
-      [
-        name,
-        email,
-        user.is_admin ? user.is_finance : role === 'Finance' ? 1 : 0,
-        user.is_admin ? user.is_security : role === 'Security' ? 1 : 0,
-        userId,
-      ],
-    );
+    await connection.query('UPDATE users SET name=?,email=? WHERE id=?', [name, email, userId]);
     await connection.commit();
     res.json({ ok: true });
   } catch (e) {
@@ -1323,14 +1302,14 @@ app.delete('/api/admin/users/:id', auth, adminOnly, wrap(async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [[user]] = await connection.query('SELECT id,is_admin FROM users WHERE id=? FOR UPDATE', [userId]);
+    const [[user]] = await connection.query('SELECT id,is_admin,is_finance,is_security FROM users WHERE id=? FOR UPDATE', [userId]);
     if (!user) {
       await connection.rollback();
       return bad(res, 'User not found.', 404);
     }
-    if (user.is_admin) {
+    if (user.is_admin || user.is_finance || user.is_security) {
       await connection.rollback();
-      return bad(res, 'Administrator accounts cannot be deleted.', 409);
+      return bad(res, 'Staff accounts are managed in the database and cannot be deleted here.', 409);
     }
 
     const [[related]] = await connection.query(
@@ -1360,33 +1339,8 @@ app.delete('/api/admin/users/:id', auth, adminOnly, wrap(async (req, res) => {
   }
 }));
 
-app.put('/api/admin/users/:id/finance', auth, adminOnly, wrap(async (req, res) => {
-  if (typeof req.body.finance !== 'boolean') return bad(res, 'Choose whether this account should have the Finance role.');
-  const userId = parseInt(req.params.id, 10);
-  if (!Number.isInteger(userId) || userId < 1) return bad(res, 'User not found.', 404);
-  const [[user]] = await pool.query('SELECT id, is_admin, is_finance, is_security FROM users WHERE id=?', [userId]);
-  if (!user) return bad(res, 'User not found.', 404);
-  if (user.is_admin) return bad(res, 'Administrator accounts cannot be assigned the Finance role.', 409);
-  if (req.body.finance && user.is_security) return bad(res, 'Remove the Security role before assigning Finance.', 409);
-  if (!!user.is_finance === req.body.finance) return bad(res, 'This account already has the requested role status.', 409);
-  const [updated] = await pool.query('UPDATE users SET is_finance=? WHERE id=? AND is_admin=0 AND is_security=0 AND is_finance<>?', [req.body.finance ? 1 : 0, userId, req.body.finance ? 1 : 0]);
-  if (!updated.affectedRows) return bad(res, 'This account role has already changed. Refresh and try again.', 409);
-  res.json({ ok: true, finance: req.body.finance });
-}));
-
-app.put('/api/admin/users/:id/security', auth, adminOnly, wrap(async (req, res) => {
-  if (typeof req.body.security !== 'boolean') return bad(res, 'Choose whether this account should have the Security role.');
-  const userId = parseInt(req.params.id, 10);
-  if (!Number.isInteger(userId) || userId < 1) return bad(res, 'User not found.', 404);
-  const [[user]] = await pool.query('SELECT id, is_admin, is_finance, is_security FROM users WHERE id=?', [userId]);
-  if (!user) return bad(res, 'User not found.', 404);
-  if (user.is_admin) return bad(res, 'Administrator accounts cannot be assigned the Security role.', 409);
-  if (req.body.security && user.is_finance) return bad(res, 'Remove the Finance role before assigning Security.', 409);
-  if (!!user.is_security === req.body.security) return bad(res, 'This account already has the requested role status.', 409);
-  const [updated] = await pool.query('UPDATE users SET is_security=? WHERE id=? AND is_admin=0 AND is_finance=0 AND is_security<>?', [req.body.security ? 1 : 0, userId, req.body.security ? 1 : 0]);
-  if (!updated.affectedRows) return bad(res, 'This account role has already changed. Refresh and try again.', 409);
-  res.json({ ok: true, security: req.body.security });
-}));
+app.put('/api/admin/users/:id/finance', auth, adminOnly, (_req, res) => bad(res, 'Staff roles can only be managed in the database.', 403));
+app.put('/api/admin/users/:id/security', auth, adminOnly, (_req, res) => bad(res, 'Staff roles can only be managed in the database.', 403));
 
 
 /* ---------- ESP32 command polling ---------- */

@@ -2,9 +2,19 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Image, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useApp } from '../../shared/hooks/useApp';
 import { getPendingPayments, getPaymentReceipt, decidePayment, getRefunds, processRefund, getPendingExtensions, processExtension } from '../../services/paymentService';
-import { Layout, InfoModal, Btn, Tag } from '../../components';
+import { Layout, InfoModal, Btn, Tag, IconBox } from '../../components';
 import { staticStyles, dynamicStyles } from '../../components/finance.styles';
 import FinanceReservations from './FinanceReservations';
+
+function RefundDetailLine({ label, value }) {
+  const { s, c } = useApp();
+  return (
+    <View style={staticStyles.financeModalLine}>
+      <Text style={s.muted}>{label}</Text>
+      <Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{value}</Text>
+    </View>
+  );
+}
 
 function Finance() {
   const { s, c, toast } = useApp();
@@ -20,6 +30,7 @@ function Finance() {
   const [transactionReference,setTransactionReference] = useState('');
   const [extensions,setExtensions] = useState([]);
   const [activePaymentTab,setActivePaymentTab] = useState('pending');
+  const [refreshing,setRefreshing] = useState(false);
 
   const viewPayments = useCallback(async () => {
     try {
@@ -32,6 +43,13 @@ function Finance() {
       setError('');
     } catch (x) { setError(x.message); }
   }, []);
+
+  const refreshPayments = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await viewPayments(); }
+    finally { setRefreshing(false); }
+  };
 
   useEffect(() => {
     viewPayments();
@@ -64,12 +82,22 @@ function Finance() {
   };
 
   const handleRefundAction = async (refund, action) => {
+    const reason = String(refundReason || '').trim();
+    const reference = String(transactionReference || '').trim();
+    if (action === 'reject' && !reason) {
+      toast('Enter a reason before rejecting this refund.');
+      return;
+    }
+    if (action === 'complete' && !reference) {
+      toast('Enter the transaction reference before marking this refund complete.');
+      return;
+    }
     setBusy(`refund-${refund.id}`);
     try {
       await processRefund(refund.id, action, action === 'reject'
-        ? { reason: refundReason }
+        ? { reason }
         : action === 'complete'
-          ? { transactionReference }
+          ? { transactionReference:reference }
           : {});
       await viewPayments();
       setRefundDetail(null); setRefundReason(''); setTransactionReference('');
@@ -97,12 +125,12 @@ function Finance() {
   const refundCount = pendingRefunds.length;
 
   return (
-    <Layout cur="financePending">
-      <View style={[s.card, staticStyles.financeDashboardTabs]}>
+    <Layout cur="financePending" title="Payments" subtitle="Review payment, extension, and refund requests." onRefresh={refreshPayments} refreshing={refreshing}>
+      <View style={[staticStyles.financeDashboardTabs, { backgroundColor:c.soft, borderColor:c.line }]}>
         {[
           { id:'pending', label:'Pending', count:pendingCount },
-          { id:'extension', label:'Extension', count:extensionCount },
-          { id:'refund', label:'Refund', count:refundCount },
+          { id:'extension', label:'Extensions', count:extensionCount },
+          { id:'refund', label:'Refunds', count:refundCount },
         ].map((tab) => {
           const selected = activePaymentTab === tab.id;
           return (
@@ -112,11 +140,11 @@ function Finance() {
               accessibilityState={{ selected }}
               onPress={() => setActivePaymentTab(tab.id)}
               style={[staticStyles.financeDashboardTab, {
-                borderColor:selected ? c.gold : c.line,
-                backgroundColor:selected ? c.goldBg : c.card,
+                borderColor:selected ? c.line : 'transparent',
+                backgroundColor:selected ? c.card : 'transparent',
               }]}
             >
-              <Text style={{ color:selected ? c.text : c.muted, fontWeight:selected ? '800' : '600' }}>{tab.label}</Text>
+              <Text style={{ color:selected ? c.text : c.muted, fontFamily:selected ? 'NunitoSansExtraBold' : 'NunitoSansSemiBold', fontWeight:selected ? '800' : '600' }}>{tab.label}</Text>
               <View style={[staticStyles.financeDashboardTabCount, { backgroundColor:tab.count ? c.badBg : c.soft }]}>
                 <Text style={{ color:tab.count ? c.bad : c.muted, fontSize:12, fontWeight:'800' }}>{tab.count}</Text>
               </View>
@@ -124,75 +152,85 @@ function Finance() {
           );
         })}
       </View>
+      {error ? <Text style={[s.err, { marginBottom:12 }]}>{error}</Text> : null}
       {activePaymentTab === 'pending' ? (
         <FinanceReservations
           pending={pendingPayments}
           busy={busy}
-          onRefresh={viewPayments}
           onViewReceipt={viewReceipt}
           onProcess={processPayment}
         />
       ) : null}
       {activePaymentTab === 'extension' ? (
-      <View style={[s.card, { marginTop:16 }]}>
-        <Text style={s.cardTitle}>Extension Requests</Text>
+      <View style={staticStyles.financeQueueList}>
+        <View style={[staticStyles.financeSectionHeading,{ borderBottomColor:c.line }]}><View style={staticStyles.financeSectionHeadingCopy}><Text style={s.cardTitle}>Extension requests</Text><Text style={s.cardSub}>Review extra time requests</Text></View><Text style={[staticStyles.financeCountBadge,dynamicStyles.financeCountBadge({ c, active:pendingExtensions.length > 0 })]}>{pendingExtensions.length} pending</Text></View>
         {pendingExtensions.length ? pendingExtensions.map((extension) => (
-          <View key={extension.id} style={dynamicStyles.paymentVerificationView1({ c })}>
-            <Text style={dynamicStyles.paymentVerificationText6({ c })}>Reservation #{extension.reservationId} · Locker {extension.slot}</Text>
-            <Text style={s.muted}>{extension.riderName} · {extension.date} · {extension.time}</Text>
-            <Text style={s.muted}>Additional time: {extension.additionalMinutes} minutes</Text>
-            <Text style={s.muted}>Payment amount: PHP {Number(extension.paymentAmount || extension.additionalFee).toFixed(2)}</Text>
+          <View key={extension.id} style={dynamicStyles.financeRecordCard({ c })}>
+            <View style={staticStyles.financeRecordHeading}><View style={staticStyles.financeRecordIdentity}><Text style={s.cardSub}>EXTENSION REVIEW</Text><Text style={s.cardTitle}>Reservation #{extension.reservationId}</Text><Text style={s.cardSub}>{extension.riderName}</Text></View><Tag kind="gold" text="Pending" /></View>
+            <View style={[staticStyles.financeRecordDetails,{ borderColor:c.line }]}>
+              <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Locker</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{extension.slot}</Text></View>
+              <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Reserved for</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{extension.date} · {extension.time}</Text></View>
+              <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Extra time</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{extension.additionalMinutes} minutes</Text></View>
+            </View>
+            <View style={[staticStyles.financeRecordAmount,{ backgroundColor:c.soft,borderColor:c.line }]}><Text style={s.muted}>Payment amount</Text><Text style={dynamicStyles.financeRecordAmount({ c, emphasis:true })}>PHP {Number(extension.paymentAmount || extension.additionalFee).toFixed(2)}</Text></View>
             {extension.paymentId ? (
-              <View style={{ marginTop:10 }}>
-                <Btn small variant="outline" icon="image-outline" label="View payment proof" onPress={() => viewReceipt({ id:extension.paymentId })} />
-              </View>
+              <Btn small variant="outline" icon="image-outline" label="View payment proof" onPress={() => viewReceipt({ id:extension.paymentId })} />
             ) : null}
-            <View style={{ flexDirection:'row', gap:8, marginTop:10 }}>
+            <View style={[staticStyles.financeRecordActions,{ borderColor:c.line }]}>
               <Btn small label="Approve" onPress={() => handleExtensionAction(extension,'verify')} />
               <Btn small variant="outline" label="Reject" onPress={() => handleExtensionAction(extension,'reject')} />
             </View>
           </View>
-        )) : <Text style={s.empty}>No extension requests awaiting verification.</Text>}
+        )) : <View style={[s.card, staticStyles.financeQueueEmpty]}><IconBox icon="time-outline" tone="gold" size={44} /><Text style={s.empty}>No extension requests awaiting verification.</Text></View>}
       </View>
       ) : null}
       {activePaymentTab === 'refund' ? (
-
-      <View style={[s.card, { marginTop:16 }]}>
-        <Text style={s.cardTitle}>Refund Requests</Text>
-        {!pendingRefunds.length ? <Text style={s.empty}>No refund requests awaiting verification.</Text> : null}
+      <View style={staticStyles.financeQueueList}>
+        <View style={[staticStyles.financeSectionHeading,{ borderBottomColor:c.line }]}><View style={staticStyles.financeSectionHeadingCopy}><Text style={s.cardTitle}>Refund requests</Text><Text style={s.cardSub}>Review rider refund requests</Text></View><Text style={[staticStyles.financeCountBadge,dynamicStyles.financeCountBadge({ c, active:pendingRefunds.length > 0 })]}>{pendingRefunds.length} pending</Text></View>
+        {!pendingRefunds.length ? <View style={[s.card, staticStyles.financeQueueEmpty]}><IconBox icon="wallet-outline" tone="gold" size={44} /><Text style={s.empty}>No refund requests awaiting verification.</Text></View> : null}
         {refunds.length ? refunds.map((refund) => (
-          <View key={refund.id} style={dynamicStyles.paymentVerificationView1({ c })}>
-            <View style={dynamicStyles.paymentVerificationView2({ c })}>
-              <View>
-                <Text style={dynamicStyles.paymentVerificationText6({ c })}>Refund #{refund.id} · Reservation #{refund.reservationId}</Text>
-                <Text style={s.muted}>{refund.riderName} (Rider ID {refund.riderId}) · Slot {refund.slot}</Text>
+          <View key={refund.id} style={dynamicStyles.financeRecordCard({ c })}>
+            <View style={staticStyles.financeRecordHeading}>
+              <View style={staticStyles.financeRecordIdentity}>
+                <Text style={s.cardSub}>REFUND REQUEST</Text>
+                <Text style={s.cardTitle}>Refund #{refund.id}</Text>
+                <Text style={s.cardSub}>{refund.riderName} · Reservation #{refund.reservationId}</Text>
               </View>
               <Tag kind={refund.status === 'COMPLETED' ? 'ok' : refund.status === 'REJECTED' ? 'bad' : 'gold'} text={refund.status} />
             </View>
-            <Text style={s.muted}>Refund: PHP {Number(refund.refundAmount).toFixed(2)} · Original: PHP {Number(refund.originalPaymentAmount).toFixed(2)}</Text>
-            <View style={{ marginTop:10 }}>
-              <Btn small variant="outline" label="View Details" onPress={() => { setRefundDetail(refund); setRefundReason(refund.rejectionReason || ''); setTransactionReference(refund.transactionReference || ''); }} />
+            <View style={[staticStyles.financeRecordDetails,{ borderColor:c.line }]}>
+              <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Locker</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{refund.slot}</Text></View>
+              <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Requested refund</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{`PHP ${Number(refund.refundAmount).toFixed(2)}`}</Text></View>
             </View>
+            <Btn small variant="outline" label="View details" onPress={() => { setRefundDetail(refund); setRefundReason(refund.rejectionReason || ''); setTransactionReference(refund.transactionReference || ''); }} />
           </View>
         )) : null}
       </View>
       ) : null}
-      <InfoModal visible={!!receiptPayment} title={`Payment #${receiptPayment?.id || ''} receipt`} onClose={() => setReceiptPayment(null)}>
+      <InfoModal visible={!!receiptPayment} title={`Payment ID #${receiptPayment?.id || ''} receipt`} onClose={() => setReceiptPayment(null)}>
         {receiptLoading ? <Text style={s.muted}>Loading receipt…</Text> : null}
         {receiptImage ? <Image source={{ uri: receiptImage }} style={staticStyles.financeDashboardImage2} resizeMode="contain" /> : null}
       </InfoModal>
       <InfoModal visible={!!refundDetail} title={`Refund #${refundDetail?.id || ''} details`} onClose={() => setRefundDetail(null)}>
         {refundDetail ? (
           <>
-            <Text style={s.cardSub}>Rider: {refundDetail.riderName} · Rider ID: {refundDetail.riderId}</Text>
-            <Text style={s.cardSub}>Reservation #{refundDetail.reservationId} · Slot {refundDetail.slot}</Text>
-            <Text style={s.cardSub}>Date: {refundDetail.date} · {refundDetail.startTime}–{refundDetail.endTime}</Text>
-            <Text style={s.cardSub}>Duration: {refundDetail.wholeDay ? 'Whole Day' : `${refundDetail.durationMinutes} minutes`}</Text>
-            <Text style={s.cardSub}>Original: PHP {Number(refundDetail.originalPaymentAmount).toFixed(2)} · 50% refund: PHP {Number(refundDetail.refundAmount).toFixed(2)}</Text>
-            <Text style={s.cardSub}>Non-refundable: PHP {Number(refundDetail.nonRefundableAmount).toFixed(2)} · Status: {refundDetail.status}</Text>
+            <View style={[staticStyles.financeModalSection,dynamicStyles.financeModalSection({ c })]}>
+              <Text style={s.cardTitle}>Reservation</Text>
+              <RefundDetailLine label="Rider" value={`${refundDetail.riderName} · ID ${refundDetail.riderId}`} />
+              <RefundDetailLine label="Locker" value={`${refundDetail.slot} · Reservation #${refundDetail.reservationId}`} />
+              <RefundDetailLine label="Date and time" value={`${refundDetail.date} · ${refundDetail.startTime}–${refundDetail.endTime}`} />
+              <RefundDetailLine label="Duration" value={refundDetail.wholeDay ? 'Whole Day' : `${refundDetail.durationMinutes} minutes`} />
+            </View>
+            <View style={[staticStyles.financeModalSection,dynamicStyles.financeModalSection({ c })]}>
+              <Text style={s.cardTitle}>Refund breakdown</Text>
+              <RefundDetailLine label="Original payment" value={`PHP ${Number(refundDetail.originalPaymentAmount).toFixed(2)}`} />
+              <RefundDetailLine label="Refund amount" value={`PHP ${Number(refundDetail.refundAmount).toFixed(2)}`} />
+              <RefundDetailLine label="Not refundable" value={`PHP ${Number(refundDetail.nonRefundableAmount).toFixed(2)}`} />
+              <RefundDetailLine label="Status" value={refundDetail.status} />
+            </View>
             {refundDetail.status === 'PENDING' ? (
               <>
-                <TextInput style={[s.input,{ marginTop:10 }]} maxLength={350} placeholder="Rejection reason" value={refundReason} onChangeText={setRefundReason} />
+                <TextInput style={[s.input,{ marginTop:10 }]} maxLength={350} placeholder="Reason (required to reject)" value={refundReason} onChangeText={setRefundReason} />
                 <View style={{ flexDirection:'row', gap:8, marginTop:10, flexWrap:'wrap' }}>
                   <Btn small label="Approve Refund" onPress={() => handleRefundAction(refundDetail,'approve')} />
                   <Btn small variant="outline" label="Reject Refund" onPress={() => handleRefundAction(refundDetail,'reject')} />
@@ -201,7 +239,7 @@ function Finance() {
             ) : null}
             {refundDetail.status === 'APPROVED' ? (
               <>
-                <TextInput style={[s.input,{ marginTop:10 }]} placeholder="Transaction reference" value={transactionReference} onChangeText={setTransactionReference} />
+                <TextInput style={[s.input,{ marginTop:10 }]} placeholder="Transaction reference (required)" value={transactionReference} onChangeText={setTransactionReference} />
                 <View style={{ marginTop:10 }}>
                   <Btn small label="Mark as Completed" onPress={() => handleRefundAction(refundDetail,'complete')} />
                 </View>

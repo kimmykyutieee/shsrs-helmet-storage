@@ -145,3 +145,20 @@ CREATE TABLE IF NOT EXISTS notifications (
   CONSTRAINT fk_notification_reservation FOREIGN KEY (reservation_id) REFERENCES reservations(id) ON DELETE CASCADE,
   CONSTRAINT fk_notification_refund FOREIGN KEY (refund_id) REFERENCES refunds(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- Required by the server's ESP32 locker command queue (also in migration 005).
+CREATE TABLE IF NOT EXISTS esp32_commands (
+  id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+  reservation_id INT NOT NULL,
+  user_id        INT NOT NULL,
+  slot_no        TINYINT NOT NULL,
+  action         ENUM('Stored','Retrieved') NOT NULL,
+  status         ENUM('queued','claimed','completed','failed','expired') NOT NULL DEFAULT 'queued',
+  device_message VARCHAR(240) NULL,
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at     DATETIME NOT NULL,
+  claimed_at     DATETIME NULL,
+  completed_at   DATETIME NULL,
+  KEY ix_esp32_queue (status, expires_at, id),
+  KEY ix_esp32_reservation (reservation_id)
+) ENGINE=InnoDB;

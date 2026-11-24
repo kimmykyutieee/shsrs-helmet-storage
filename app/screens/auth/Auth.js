@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -111,12 +111,17 @@ function Auth({ reg }) {
   };
 
   const form = (
-    <View style={staticStyles.authView1}>
+    <View style={[staticStyles.authView1, dynamicStyles.authCard({ c })]}>
       {!wide && (
-        <TouchableOpacity onPress={() => nav('home')} style={staticStyles.authTouchableOpacity2}><Shield size={50} /></TouchableOpacity>
+        <View style={staticStyles.authBrand}>
+          <Shield size={52} />
+          <View>
+            <Text style={dynamicStyles.authBrandTitle({ c })}>HelMate</Text>
+          </View>
+        </View>
       )}
-      <Text style={dynamicStyles.authText3({ c })}>{reg && !student ? 'Registration' : reg ? 'Create your account' : 'Welcome back'}</Text>
-      <Text style={[s.muted, staticStyles.authText4]}>{reg && !student ? '' : reg ? 'Complete your account details to continue.' : 'Log in to manage your reservations.'}</Text>
+      <Text style={dynamicStyles.authText3({ c, wide })}>{reg && !student ? 'Registration' : reg ? 'Create your account' : 'Welcome back!'}</Text>
+      <Text style={[s.muted, staticStyles.authText4]}>{reg && !student ? 'Create your account to reserve a locker.' : reg ? 'Complete your account details to continue.' : 'Log in to continue to your reservations.'}</Text>
       {reg && !student ? (
         <>
           {camera ? (
@@ -131,12 +136,13 @@ function Auth({ reg }) {
           ) : (
             <View style={dynamicStyles.authView7({ c })}>
               <Ionicons name="qr-code-outline" size={40} color={c.gold} />
-              <Text style={[s.muted, staticStyles.authText8]}>Scan the QR code on your Student ID to continue.</Text>
+          <Text style={[s.muted, staticStyles.authText8]}>Scan the QR code on your Student ID to continue.</Text>
             </View>
           )}
           {er ? <View style={dynamicStyles.authView9({ c })}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={dynamicStyles.authText10({ c })}>{er}</Text></View> : null}
           <Btn
             full
+            fontFamily="NunitoSansBold"
             label={cameraBusy ? 'Requesting camera…' : camera ? 'Close camera' : 'Open camera'}
             icon={cameraBusy ? undefined : camera ? 'close' : 'camera-outline'}
             onPress={cameraBusy ? undefined : camera ? () => setCamera(false) : startScan}
@@ -156,23 +162,22 @@ function Auth({ reg }) {
               ))}
 
               <View style={staticStyles.authView16}>
-                <Btn small variant="outline" icon="refresh-outline" label="Scan again" onPress={() => { setStudent(null); setStudentQr(''); setEr(''); startScan(); }} />
+                <Btn small fontFamily="NunitoSansBold" variant="outline" icon="refresh-outline" label="Scan again" onPress={() => { setStudent(null); setStudentQr(''); setEr(''); startScan(); }} />
               </View>
             </View>
           ) : null}
-          <Field label="Email" icon="mail-outline" value={f.e} onChangeText={set('e')} keyboardType="email-address" autoComplete="email" placeholder="you@example.com" />
-          {reg && <Field label="Phone number" icon="call-outline" value={f.phone} onChangeText={set('phone')} keyboardType="phone-pad" placeholder="+63 9XX XXX XXXX" />}
-          <Field label="Password" icon="lock-closed-outline" secure value={f.p} onChangeText={set('p')} placeholder="At least 8 characters" onSubmitEditing={reg ? undefined : submit} />
-          {reg && <Field label="Confirm password" icon="lock-closed-outline" secure value={f.c} onChangeText={set('c')} placeholder="Repeat password" onSubmitEditing={submit} />}
+          <Field label="Email" icon="mail-outline" fontFamily="NunitoSans" labelFontFamily="NunitoSansSemiBold" value={f.e} onChangeText={set('e')} keyboardType="email-address" autoComplete="email" placeholder="you@example.com" />
+          {reg && <Field label="Phone number" icon="call-outline" fontFamily="NunitoSans" labelFontFamily="NunitoSansSemiBold" value={f.phone} onChangeText={set('phone')} keyboardType="phone-pad" placeholder="+63 9XX XXX XXXX" />}
+          <Field label="Password" icon="lock-closed-outline" fontFamily="NunitoSans" labelFontFamily="NunitoSansSemiBold" secure value={f.p} onChangeText={set('p')} placeholder="At least 8 characters" onSubmitEditing={reg ? undefined : submit} />
+          {reg && <Field label="Confirm password" icon="lock-closed-outline" fontFamily="NunitoSans" labelFontFamily="NunitoSansSemiBold" secure value={f.c} onChangeText={set('c')} placeholder="Repeat password" onSubmitEditing={submit} />}
         </>
       )}
       {er && (!reg || student) ? <View style={dynamicStyles.authView9({ c })}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={dynamicStyles.authText10({ c })}>{er}</Text></View> : null}
-      {(!reg || student) ? <Btn full label={busy ? 'Please wait…' : reg ? 'Create account' : 'Log in'} icon={busy ? undefined : 'arrow-forward'} onPress={busy ? undefined : submit} /> : null}
+      {(!reg || student) ? <Btn full fontFamily="NunitoSansBold" label={busy ? 'Please wait…' : reg ? 'Create account' : 'Log in'} icon={busy ? undefined : 'arrow-forward'} onPress={busy ? undefined : submit} /> : null}
       <Text style={dynamicStyles.authText19({ c })}>
         {reg ? 'Already registered? ' : 'Need an account? '}
         <Text onPress={() => nav(reg ? 'login' : 'register')} style={dynamicStyles.authText20({ c })}>{reg ? 'Log in' : 'Register'}</Text>
       </Text>
-      <Text onPress={() => nav('home')} style={dynamicStyles.authText21({ c })}>← Back to home</Text>
     </View>
   );
 
@@ -182,15 +187,20 @@ function Auth({ reg }) {
         <View style={staticStyles.authView23}>
           <Gradient id="authbg" from="#08122b" to="#17397f" />
           <View style={staticStyles.authView24} />
-          <TouchableOpacity onPress={() => nav('home')} style={staticStyles.authTouchableOpacity25}><Shield size={38} /><Text style={staticStyles.authText26}>SHSRS</Text></TouchableOpacity>
+          <View style={staticStyles.authBrandWide}>
+            <Shield size={58} />
+            <View>
+              <Text style={staticStyles.authText26}>HelMate</Text>
+            </View>
+          </View>
           <View>
             <Text style={staticStyles.authText27}>Your helmet, <Text style={dynamicStyles.authText28({ GOLD })}>safe</Text> and always within reach.</Text>
-            <Text style={staticStyles.authText29}>Reserve a cabinet slot, submit payment for review, then use your verified QR code to unlock storage.</Text>
+            <Text style={staticStyles.authText29}>Reserve a locker, submit payment for review, then use your verified QR code to access it.</Text>
           </View>
           <Text style={staticStyles.authText30}>© 2026 Helmet Reservation Storage System</Text>
         </View>
       )}
-      <SafeAreaView style={staticStyles.authCameraView6}>
+      <SafeAreaView style={dynamicStyles.authFormArea({ c })}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={staticStyles.authCameraView6}>
           <ScrollView contentContainerStyle={staticStyles.authContentContainer1} keyboardShouldPersistTaps="handled">{form}</ScrollView>
         </KeyboardAvoidingView>

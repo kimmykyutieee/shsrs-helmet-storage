@@ -125,12 +125,13 @@ function NotificationBell({ compact }) {
   );
 }
 
-function RiderHeader({ compact, profileControl, ...props }) {
+function RiderHeader({ compact, profileControl, rightControl, ...props }) {
   const { c, s } = useApp();
   if (compact) {
     return (
       <View style={staticStyles.riderHeaderControls}>
         <NotificationBell compact />
+        {rightControl || null}
         {profileControl}
       </View>
     );
@@ -144,6 +145,7 @@ function RiderHeader({ compact, profileControl, ...props }) {
       </View>
       <View style={staticStyles.riderHeaderControls}>
         <NotificationBell />
+        {rightControl || null}
         {profileControl}
       </View>
     </View>

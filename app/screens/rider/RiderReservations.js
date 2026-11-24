@@ -65,6 +65,18 @@ const clockTime = (minutes) => {
   return `${hour % 12 || 12}:${String(minute).padStart(2,'0')} ${hour < 12 ? 'AM' : 'PM'}`;
 };
 
+function DetailLine({ label, value, icon, c }) {
+  return (
+    <View style={staticStyles.riderDetailLine}>
+      <View style={[staticStyles.riderDetailIcon, { backgroundColor:c.soft }]}><Ionicons name={icon} size={17} color={c.primary} /></View>
+      <View style={staticStyles.riderDetailCopy}>
+        <Text style={dynamicStyles.riderDetailLabel({ c })}>{label}</Text>
+        <Text style={dynamicStyles.riderDetailValue({ c })}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
 function StartingTimeSelector({ value, onChange }) {
   const { c } = useApp();
   const [openField, setOpenField] = useState(null);
@@ -268,6 +280,7 @@ function Reservations({ mode = 'booking' }) {
   const [wholeDay, setWholeDay] = useState(false);
   const [qi, setQi] = useState(''); const [q, setQ] = useState('');
   const [reservationSection, setReservationSection] = useState('history');
+  const [historyFilter, setHistoryFilter] = useState('All');
   const [historyDetails, setHistoryDetails] = useState(null);
   const [er, setEr] = useState('');
   const [payFor, setPayFor] = useState(null);
@@ -304,8 +317,14 @@ function Reservations({ mode = 'booking' }) {
 
   const taken = new Set(rd ? (db.slotReservations || []).filter((r) => r.date === rd).map((r) => r.slot) : []);
   const eff = db.blocked.includes(sel) || taken.has(sel) ? 0 : sel;
+  const reviewRows = [
+    ['Locker', eff ? `Locker ${eff}` : 'Not selected'],
+    ['Date', rd ? fd(rd) : 'Not selected'],
+    ['Starting time', displayTime(startTime)],
+    ['Duration', wholeDay ? `Whole Day (${Math.max(0,1260-startMinutes)} minutes)` : `${displayDuration(duration)} (${durationMinutes} minutes)`],
+    ['Ending time', endTimeFor()],
+  ];
   const myReservations = mine().slice().sort((a, b) => Number(b.id) - Number(a.id));
-  const rows = myReservations.filter((r) => `slot ${r.slot} ${r.date} ${fd(r.date)} ${ft(r.time)}`.toLowerCase().includes(q.toLowerCase()));
   const statusFor = (reservation, payment) => {
     if (reservation.status === 'Cancelled' || reservation.status === 'Canceled') return 'Cancelled';
     if (reservation.status === 'Expired') return 'Expired';
@@ -315,6 +334,14 @@ function Reservations({ mode = 'booking' }) {
     if (payment?.status === 'Pending') return 'Pending Verification';
     return 'Pending Payment';
   };
+  const historyGroup = (reservation) => {
+    if (['Cancelled', 'Canceled', 'Pending Refund Verification'].includes(reservation.status)) return 'Cancelled';
+    if (['Expired', 'Used', 'Completed'].includes(reservation.status) || (isPast(reservation) && reservation.status !== 'Active')) return 'Completed';
+    return 'Upcoming';
+  };
+  const rows = myReservations.filter((reservation) =>
+    (historyFilter === 'All' || historyGroup(reservation) === historyFilter)
+    && `locker ${reservation.slot} ${reservation.date} ${fd(reservation.date)} ${ft(reservation.time)}`.toLowerCase().includes(q.toLowerCase()));
   const reservationIds = new Set(myReservations.map((reservation) => reservation.id));
   const activities = (db.log || [])
     .filter((entry) => entry.uid === db.me && reservationIds.has(entry.rid))
@@ -370,7 +397,7 @@ function Reservations({ mode = 'booking' }) {
   };
 
   const book = async () => {
-    if (!eff) return setEr('Please select a slot.');
+    if (!eff) return setEr('Please select a locker.');
     if (!rd) return setEr('Please choose a date.');
     if (timeError) return setEr(timeError);
     if (dt(rd, parsedStart) < new Date()) return setEr('Please choose a future date and time.');
@@ -381,7 +408,7 @@ function Reservations({ mode = 'booking' }) {
         durationMinutes: wholeDay ? undefined : durationMinutes,
       });
       await refresh();
-      toast(`Slot ${eff} reserved for ${fd(rd)}.`);
+      toast(`Locker ${eff} reserved for ${fd(rd)}.`);
       setSel(0); setRd(''); setEr('');
       setPayFor(r.id); setReceipt(''); setReceiptFile(null); setPaymentError('');
     } catch (x) { setEr(x.message); refresh().catch(() => {}); }
@@ -496,54 +523,74 @@ function Reservations({ mode = 'booking' }) {
     const r = myReservations;
     if (!r.length) return toast('No reservations to export.');
     const td = riderExportStyles.tableCell;
-    const html = `<html><body ${riderExportStyles.reservationBody}><div ${riderExportStyles.reservationHeader}><h2 ${riderExportStyles.reservationTitle}>Helmet Reservation Storage System</h2><p ${riderExportStyles.reservationMeta}>Reservations for ${esc(me.name)} (${esc(me.email)}) · Generated ${esc(new Date().toLocaleString())}</p></div><table ${riderExportStyles.reservationTable}><thead><tr>${['ID', 'Slot', 'Date', 'Time', 'Status'].map((h) => `<th ${riderExportStyles.reservationHeading}>${h}</th>`).join('')}</tr></thead><tbody>${r.map((x) => `<tr><td ${td}>#${x.id}</td><td ${td}>Slot ${x.slot}</td><td ${td}>${fd(x.date)}</td><td ${td}>${ft(x.time)}</td><td ${td}>${statusFor(x, paymentFor(x.id))}</td></tr>`).join('')}</tbody></table></body></html>`;
+    const html = `<html><body ${riderExportStyles.reservationBody}><div ${riderExportStyles.reservationHeader}><h2 ${riderExportStyles.reservationTitle}>HelMate</h2><p ${riderExportStyles.reservationMeta}>Reservations for ${esc(me.name)} (${esc(me.email)}) · Generated ${esc(new Date().toLocaleString())}</p></div><table ${riderExportStyles.reservationTable}><thead><tr>${['ID', 'Locker', 'Date', 'Time', 'Status'].map((h) => `<th ${riderExportStyles.reservationHeading}>${h}</th>`).join('')}</tr></thead><tbody>${r.map((x) => `<tr><td ${td}>#${x.id}</td><td ${td}>Locker ${x.slot}</td><td ${td}>${fd(x.date)}</td><td ${td}>${ft(x.time)}</td><td ${td}>${statusFor(x, paymentFor(x.id))}</td></tr>`).join('')}</tbody></table></body></html>`;
     try { await sharePdf(html, toast); } catch (_e) { toast('Could not create the PDF.'); }
   };
 
   return (
-    <Layout cur={mode === 'mine' ? 'myReservations' : 'reservations'} title={mode === 'mine' ? 'My Reservations' : 'Reservation'} subtitle={mode === 'mine' ? 'Review and manage your reservations.' : 'Book a cabinet slot.'}>
+    <Layout cur={mode === 'mine' ? 'myReservations' : 'reservations'} title={mode === 'mine' ? 'My Reservations' : 'Reservation'} subtitle={mode === 'mine' ? 'Review and manage your reservations.' : 'Book a locker.'}>
       <View style={dynamicStyles.cabinetScannerView1({ wide })}>
         {mode !== 'mine' ? <View style={dynamicStyles.riderReservationsView2({ wide })}>
           <View style={s.card}>
-            <Text style={s.cardTitle}>Select a slot</Text>
-            <Text style={[s.cardSub, staticStyles.cabinetScannerText3]}>Choose any available cabinet slot.</Text>
+            <Text style={s.cardTitle}>Select a locker</Text>
+            <Text style={[s.cardSub, staticStyles.cabinetScannerText3]}>Choose an available locker.</Text>
             <SlotGrid taken={taken} blocked={db.blocked} sel={eff} onSel={setSel} />
             
-            <Text style={s.cardTitle}>Pick date &amp; time</Text>
-            <DateTimeFields date={rd} onDate={setRd} dateOnly />
+            <View style={staticStyles.riderReservationSchedule}>
+              <Text style={s.cardTitle}>Pick date &amp; time</Text>
+              <DateTimeFields date={rd} onDate={setRd} dateOnly />
 
-            <Text style={s.label}>Starting time</Text>
-            <TouchableOpacity
-              accessibilityRole="button"
-              onPress={openStartTimeSelector}
-              style={[s.input, { minHeight:48, flexDirection:'row', alignItems:'center', justifyContent:'space-between' }]}
-            >
-              <Text style={s.muted}>Choose Starting Time</Text>
-              <Text style={dynamicStyles.riderReservationsText18({ c })}>{displayTime(startTime)}</Text>
-            </TouchableOpacity>
+              <View style={staticStyles.riderReservationScheduleField}>
+                <Text style={s.label}>Starting time</Text>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  onPress={openStartTimeSelector}
+                  style={[s.input, { minHeight:48, flexDirection:'row', alignItems:'center', justifyContent:'space-between' }]}
+                >
+                  <Text style={s.muted}>Choose Starting Time</Text>
+                  <Text style={dynamicStyles.riderReservationsText18({ c })}>{displayTime(startTime)}</Text>
+                </TouchableOpacity>
+              </View>
 
-            <Text style={s.label}>Duration</Text>
-            <TouchableOpacity
-              accessibilityRole="button"
-              onPress={openDurationSelector}
-              style={[s.input, { minHeight:48, flexDirection:'row', alignItems:'center', justifyContent:'space-between' }]}
-            >
-              <Text style={s.muted}>Choose Duration</Text>
-              <Text style={dynamicStyles.riderReservationsText18({ c })}>{wholeDay ? 'Whole Day' : displayDuration(duration)}</Text>
-            </TouchableOpacity>
-            
-            <View style={staticStyles.riderReservationsWholeDay}>
-              <Btn small variant={wholeDay ? 'gold' : 'outline'} icon="sunny-outline"
-                label={wholeDay ? 'Whole Day selected ' : 'Choose Whole Day'}
-                onPress={() => { setWholeDay(!wholeDay); setEr(''); }} />
+              <View style={staticStyles.riderReservationScheduleField}>
+                <Text style={s.label}>Duration</Text>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  onPress={openDurationSelector}
+                  style={[s.input, { minHeight:48, flexDirection:'row', alignItems:'center', justifyContent:'space-between' }]}
+                >
+                  <Text style={s.muted}>Choose Duration</Text>
+                  <Text style={dynamicStyles.riderReservationsText18({ c })}>{wholeDay ? 'Whole Day' : displayDuration(duration)}</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={staticStyles.riderReservationsWholeDay}>
+                <Btn small variant={wholeDay ? 'gold' : 'outline'} icon="sunny-outline"
+                  label={wholeDay ? 'Whole Day selected ' : 'Choose Whole Day'}
+                  onPress={() => { setWholeDay(!wholeDay); setEr(''); }} />
+              </View>
             </View>
-            <View style={[s.card, { marginTop:12, borderWidth:1, borderColor:c.line }]}>
-              <Text style={s.cardTitle}>Review reservation</Text>
-              <Text style={s.muted}>Date: {rd ? fd(rd) : 'Not selected'}</Text>
-              <Text style={s.muted}>Starting time: {displayTime(startTime)}</Text>
-              <Text style={s.muted}>Duration: {wholeDay ? `Whole Day (${Math.max(0,1260-startMinutes)} minutes)` : `${displayDuration(duration)} (${durationMinutes} minutes)`}</Text>
-              <Text style={s.muted}>Ending time: {endTimeFor()}</Text>
-              <Text style={dynamicStyles.riderReservationsText18({ c })}>Total price: ₱{totalPrice.toFixed(2)}</Text>
+            <View style={[s.card, staticStyles.riderReservationsReviewCard, { marginTop:16, borderColor:c.line }]}>
+              <View style={staticStyles.riderReservationsReviewHeader}>
+                <View>
+                  <Text style={dynamicStyles.riderReservationsReviewEyebrow({ c })}>RESERVATION SUMMARY</Text>
+                  <Text style={[s.cardTitle, staticStyles.riderReservationsReviewTitle]}>Review reservation</Text>
+                </View>
+                <Ionicons name="receipt-outline" size={23} color={c.gold} />
+              </View>
+              <View style={staticStyles.riderReservationsReviewRows}>
+                {reviewRows.map(([label, value]) => (
+                  <View key={label} style={staticStyles.riderReservationsReviewRow}>
+                    <Text style={[s.muted, staticStyles.riderReservationsReviewLabel]}>{label}</Text>
+                    <Text style={[staticStyles.riderReservationsReviewValue, { color:c.text }]}>{value}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={[staticStyles.riderReservationsReviewDivider, { borderColor:c.line }]} />
+              <View style={staticStyles.riderReservationsReviewTotal}>
+                <Text style={[s.muted, staticStyles.riderReservationsReviewTotalLabel]}>Total price</Text>
+                <Text style={[staticStyles.riderReservationsReviewAmount, { color:c.text }]}>₱{totalPrice.toFixed(2)}</Text>
+              </View>
             </View>
             {timeError ? <View style={dynamicStyles.riderReservationsView5({ c })}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={dynamicStyles.riderReservationsText6({ c })}>{timeError}</Text></View> : null}
             {er ? <View style={dynamicStyles.riderReservationsView5({ c })}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={dynamicStyles.riderReservationsText6({ c })}>{er}</Text></View> : null}
@@ -551,47 +598,56 @@ function Reservations({ mode = 'booking' }) {
           </View>
         </View> : null}
         {mode !== 'booking' ? <View style={dynamicStyles.riderReservationsView8({ wide })}>
-          <View style={[s.row, { marginBottom:14, gap:8 }]}>
+          <View style={[staticStyles.riderReservationsTabs, { borderColor:c.line, backgroundColor:c.soft }]}>
             {[
               ['history', 'Reservation History'],
-              ['activity', 'Cabinet Activity'],
+              ['activity', 'Locker Activity'],
             ].map(([section, title]) => {
               const selected = reservationSection === section;
+              const icon = section === 'history' ? 'calendar-outline' : 'time-outline';
               return (
                 <TouchableOpacity
                   key={section}
                   accessibilityRole="tab"
                   accessibilityState={{ selected }}
                   onPress={() => setReservationSection(section)}
-                  style={{
-                    flex:1,
-                    alignItems:'center',
-                    justifyContent:'center',
-                    minHeight:46,
-                    paddingHorizontal:8,
-                    borderRadius:12,
-                    borderWidth:1,
-                    borderColor:selected ? c.gold : c.line,
-                    backgroundColor:selected ? c.goldBg : c.card,
-                  }}
+                  style={[staticStyles.riderReservationsTab, { backgroundColor:selected ? c.card : 'transparent', borderColor:selected ? c.line : 'transparent' }]}
                 >
-                  <Text style={{ color:c.text, fontWeight:selected ? '800' : '600', textAlign:'center' }}>{title}</Text>
+                  <Ionicons name={icon} size={17} color={selected ? c.primary : c.muted} />
+                  <Text style={{ color:selected ? c.text : c.muted, fontFamily:selected ? 'NunitoSansExtraBold' : 'NunitoSansSemiBold', fontWeight:selected ? '800' : '600', textAlign:'center' }}>{title}</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
           {reservationSection === 'history' ? (
-            <View style={s.card}>
-              <View style={staticStyles.riderReservationsView9}>
-                <View><Text style={s.cardSub}>{rows.length} shown</Text></View>
-                
-              </View>
-              <View style={staticStyles.riderReservationsView10}>
-                <View style={staticStyles.riderReservationsView11}>
-                  <Ionicons name="search-outline" size={17} color={c.muted} style={staticStyles.riderReservationsIonicons12} />
-                  <TextInput style={[s.input, staticStyles.riderReservationsTextInput13]} placeholder="Search slot or date…" placeholderTextColor={c.muted} value={qi} onChangeText={setQi} onSubmitEditing={() => setQ(qi)} returnKeyType="search" />
+            <View style={{ gap:12 }}>
+              <View style={[staticStyles.riderReservationsHistoryHeading, { borderBottomColor:c.line }]}>
+                <View>
+                  <Text style={dynamicStyles.riderReservationsHistoryTitle({ c })}>Reservation history</Text>
+                  <Text style={s.cardSub}>All your bookings in one place</Text>
                 </View>
-                <Btn variant="soft" label="Search" onPress={() => setQ(qi)} />
+                <Text style={[s.cardSub, staticStyles.riderReservationsResultCount, { backgroundColor:c.soft }]}>{rows.length} {rows.length === 1 ? 'reservation' : 'reservations'}</Text>
+              </View>
+              <View style={[staticStyles.riderReservationsSearch, { backgroundColor:c.card, borderColor:c.line }]}>
+                <Ionicons name="search-outline" size={17} color={c.muted} />
+                <TextInput style={[s.input, staticStyles.riderReservationsSearchInput]} placeholder="Find a locker or date" placeholderTextColor={c.muted} value={qi} onChangeText={(value) => { setQi(value); setQ(value); }} onSubmitEditing={() => setQ(qi)} returnKeyType="search" />
+                {qi ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => { setQi(''); setQ(''); }} style={staticStyles.riderReservationsClearSearch}><Ionicons name="close-circle" size={18} color={c.muted} /></TouchableOpacity> : null}
+              </View>
+              <View style={staticStyles.riderReservationsHistoryFilters}>
+                {['All', 'Upcoming', 'Completed', 'Cancelled'].map((filter) => {
+                  const selected = historyFilter === filter;
+                  return (
+                    <TouchableOpacity
+                      key={filter}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected }}
+                      onPress={() => setHistoryFilter(filter)}
+                      style={[staticStyles.riderReservationsHistoryFilter, { backgroundColor:selected ? c.goldBg : c.card, borderColor:selected ? c.gold : c.line }]}
+                    >
+                      <Text numberOfLines={1} adjustsFontSizeToFit style={{ color:selected ? c.text : c.muted, fontFamily:selected ? 'NunitoSansExtraBold' : 'NunitoSansSemiBold', fontWeight:selected ? '800' : '600', fontSize:11 }}>{filter}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
               {rows.length ? rows.map((r) => {
                 const payment = paymentFor(r.id);
@@ -613,39 +669,53 @@ function Reservations({ mode = 'booking' }) {
                   && !extensionPending;
                 const canCancel = ['Pending','Confirmed','Active'].includes(r.status);
                 return (
-                  <View key={r.id} style={dynamicStyles.riderReservationsView14({ c })}>
-                    <View style={dynamicStyles.riderReservationsView15({ GOLD, c, isPast, r })} />
-                    <View style={staticStyles.riderHistoryCardBody}>
-                      <TouchableOpacity
+                  <View key={r.id} style={dynamicStyles.riderReservationsHistoryCard({ c, isPast, r, GOLD })}>
+                    <TouchableOpacity
                         accessibilityRole="button"
                         accessibilityLabel={`View details for locker ${r.slot}`}
                         onPress={() => setHistoryDetails({ type:'reservation', record:r })}
-                        style={staticStyles.riderHistoryCardPressable}
+                        style={staticStyles.riderReservationsHistoryMain}
                       >
-                        <Text style={dynamicStyles.riderReservationsText18({ c })}>Locker {r.slot}</Text>
-                        <View style={staticStyles.riderHistoryCardStatus}>
+                        <View style={staticStyles.riderReservationsHistoryMeta}>
+                          <Text style={dynamicStyles.riderReservationsText18({ c })}>Locker {r.slot}</Text>
                           <Tag kind={statusTone} text={status} />
-                          <Ionicons name="chevron-forward" size={18} color={c.muted} />
+                        </View>
+                        <View style={staticStyles.riderReservationsHistoryInfoRow}>
+                          <View style={staticStyles.riderReservationsDateLine}>
+                            <Ionicons name="calendar-outline" size={15} color={c.muted} />
+                            <Text style={[s.muted, staticStyles.riderReservationsHistoryTime]}>{fd(r.date)} · {ft(r.time)}</Text>
+                          </View>
+                          {r.totalPrice != null ? <Text style={[staticStyles.riderReservationsHistoryPrice, { color:c.text }]}>₱{Number(r.totalPrice).toFixed(2)}</Text> : null}
+                        </View>
+                        <View style={staticStyles.riderReservationsHistoryRef}>
+                          <Text style={[s.muted, staticStyles.riderReservationsHistoryTime]}>Reservation #{r.id}</Text>
+                          <Ionicons name="chevron-forward" size={16} color={c.muted} />
                         </View>
                       </TouchableOpacity>
-                      <View style={staticStyles.riderHistoryCardActions}>
+                    {canOpenQr || canPay || canExtend || canCancel ? <View style={[staticStyles.riderReservationsHistoryActions, { borderTopColor:c.line }]}>
                         {canOpenQr ? <Btn small variant="outline" icon="qr-code-outline" label="View QR" onPress={() => nav('qr', r.id)} /> : null}
                         {canPay ? <Btn small variant="gold" icon="card-outline" label={payment?.status === 'Rejected' ? 'Resubmit payment' : `Pay ${PAYMENT_CURRENCY} ${Number(r.totalPrice || 0).toFixed(2)}`} onPress={() => { setPayFor(r.id); setReceipt(''); setReceiptFile(null); setPaymentError(''); }} /> : null}
                         {canExtend ? <Btn small variant="gold" icon="time-outline" label="Extend Time" onPress={() => { setExtensionFor(r.id); setExtensionMinutes(30); setExtensionReceipt(''); setExtensionReceiptFile(null); setExtensionError(''); }} /> : null}
                         {canCancel ? <Btn small variant="outline" icon="trash-outline" label="Cancel" onPress={() => cancel(r.id)} /> : null}
-                      </View>
-                    </View>
+                    </View> : null}
                   </View>
                 );
               }) : (
                 <View style={staticStyles.riderReservationsView22}>
                   <IconBox icon="calendar-outline" tone="gold" size={56} />
-                  <Text style={s.empty}>{q ? 'No reservations match your search.' : 'No reservations yet.'}</Text>
+                  <Text style={s.empty}>{q ? 'No reservations match your search.' : historyFilter === 'All' ? 'No reservations yet.' : `No ${historyFilter.toLowerCase()} reservations.`}</Text>
                 </View>
               )}
             </View>
           ) : (
-            <View style={s.card}>
+            <View style={{ gap:10 }}>
+              <View style={[staticStyles.riderReservationsView9, { marginBottom:0 }]}>
+                <View>
+                  <Text style={s.cardTitle}>Locker Activity</Text>
+                  <Text style={s.cardSub}>Storage and retrieval updates</Text>
+                </View>
+                <Text style={s.cardSub}>{activities.length} {activities.length === 1 ? 'record' : 'records'}</Text>
+              </View>
               {activities.length ? activities.map((activity) => {
                 const reservation = myReservations.find((item) => item.id === activity.rid);
                 return (
@@ -653,11 +723,17 @@ function Reservations({ mode = 'booking' }) {
                     <View style={{ width:5, backgroundColor:activity.act === 'Stored' ? c.gold : c.primary }} />
                     <TouchableOpacity
                       accessibilityRole="button"
-                      accessibilityLabel={`View details for locker ${activity.slot} cabinet activity`}
+                      accessibilityLabel={`View details for locker ${activity.slot} activity`}
                       onPress={() => setHistoryDetails({ type:'activity', record:activity, reservation })}
                       style={staticStyles.riderHistoryCardPressable}
                     >
-                      <Text style={dynamicStyles.riderReservationsText18({ c })}>Locker {activity.slot}</Text>
+                      <View style={staticStyles.riderReservationsActivityContent}>
+                        <View style={[staticStyles.riderReservationsActivityBubble, { backgroundColor:c.goldBg }]}><Ionicons name={activity.act === 'Stored' ? 'arrow-down-outline' : 'arrow-up-outline'} size={18} color={c.gold} /></View>
+                        <View style={staticStyles.riderReservationsActivityText}>
+                          <Text style={dynamicStyles.riderReservationsText18({ c })}>{activity.title || activity.act}</Text>
+                          <Text style={s.muted}>Locker {activity.slot}{Number.isFinite(activity.eventTime) && activity.eventTime > 0 ? ` · ${new Date(activity.eventTime).toLocaleString()}` : ''}</Text>
+                        </View>
+                      </View>
                       <View style={staticStyles.riderHistoryCardStatus}>
                         <Tag kind="mute" text={activity.status} />
                         <Ionicons name="chevron-forward" size={18} color={c.muted} />
@@ -668,7 +744,7 @@ function Reservations({ mode = 'booking' }) {
               }) : (
                 <View style={staticStyles.riderReservationsView22}>
                   <IconBox icon="list-outline" tone="gold" size={56} />
-                  <Text style={s.empty}>No cabinet activity has been recorded for your reservations.</Text>
+                  <Text style={s.empty}>No locker activity has been recorded for your reservations.</Text>
                 </View>
               )}
             </View>
@@ -692,50 +768,62 @@ function Reservations({ mode = 'booking' }) {
       </InfoModal>
       <InfoModal
         visible={!!historyDetails}
-        title={selectedActivity ? 'Cabinet Activity Details' : 'Reservation Details'}
+        title={selectedActivity ? 'Locker Activity Details' : 'Reservation Details'}
         onClose={() => setHistoryDetails(null)}
       >
         {selectedActivity ? (
-          <View style={{ gap:8 }}>
-            <Text style={s.cardTitle}>{selectedActivity.title}</Text>
-            <Text style={s.cardSub}>Locker: {selectedActivity.slot}</Text>
-            <Text style={s.cardSub}>Activity: {selectedActivity.act}</Text>
-            <Text style={s.cardSub}>Activity status: {selectedActivity.status}</Text>
-            {Number.isFinite(selectedActivity.eventTime) && selectedActivity.eventTime > 0
-              ? <Text style={s.cardSub}>Activity time: {new Date(selectedActivity.eventTime).toLocaleString()}</Text>
-              : null}
+          <View style={staticStyles.riderDetailContent}>
+            <View style={[staticStyles.riderDetailHero, { backgroundColor:c.goldBg }]}>
+              <View style={[staticStyles.riderDetailHeroIcon, { backgroundColor:c.card }]}><Ionicons name={selectedActivity.act === 'Stored' ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline'} size={26} color={c.gold} /></View>
+              <View style={staticStyles.riderDetailHeroCopy}>
+                <Text style={dynamicStyles.riderDetailEyebrow({ c })}>LOCKER ACTIVITY</Text>
+                <Text style={dynamicStyles.riderDetailHeroTitle({ c })}>{selectedActivity.title || selectedActivity.act}</Text>
+              </View>
+              <Tag kind="mute" text={selectedActivity.status} />
+            </View>
+            <View style={[staticStyles.riderDetailSection, { backgroundColor:c.card, borderColor:c.line }]}>
+              <Text style={dynamicStyles.riderDetailSectionTitle({ c })}>Activity information</Text>
+              <DetailLine c={c} icon="file-tray-stacked-outline" label="Locker" value={`Locker ${selectedActivity.slot}`} />
+              <DetailLine c={c} icon="swap-horizontal-outline" label="Action" value={selectedActivity.act} />
+              {Number.isFinite(selectedActivity.eventTime) && selectedActivity.eventTime > 0
+                ? <DetailLine c={c} icon="time-outline" label="Date and time" value={new Date(selectedActivity.eventTime).toLocaleString()} />
+                : null}
+            </View>
             {selectedReservation ? (
-              <>
-                <Text style={s.cardTitle}>Reservation #{selectedReservation.id}</Text>
-                {selectedReservation.date ? <Text style={s.cardSub}>Reservation date: {fd(selectedReservation.date)}</Text> : null}
-                {selectedReservation.time ? <Text style={s.cardSub}>Starting time: {ft(selectedReservation.time)}</Text> : null}
-                {selectedReservation.endTime ? <Text style={s.cardSub}>Ending time: {ft(selectedReservation.endTime)}</Text> : null}
-                {selectedReservation.durationMinutes != null
-                  ? <Text style={s.cardSub}>Duration: {selectedReservation.wholeDay ? 'Whole Day' : `${selectedReservation.durationMinutes} minutes`}</Text>
-                  : null}
-                <Text style={s.cardSub}>Reservation status: {selectedReservationStatus}</Text>
-                <Text style={s.cardSub}>Payment status: {selectedPaymentStatus}</Text>
-              </>
+              <View style={[staticStyles.riderDetailSection, { backgroundColor:c.card, borderColor:c.line }]}>
+                <Text style={dynamicStyles.riderDetailSectionTitle({ c })}>Related reservation · #{selectedReservation.id}</Text>
+                <DetailLine c={c} icon="calendar-outline" label="Date and time" value={`${fd(selectedReservation.date)}${selectedReservation.time ? ` · ${ft(selectedReservation.time)}` : ''}`} />
+                <DetailLine c={c} icon="checkmark-circle-outline" label="Reservation status" value={selectedReservationStatus} />
+                <DetailLine c={c} icon="card-outline" label="Payment status" value={selectedPaymentStatus} />
+              </View>
             ) : null}
           </View>
         ) : selectedReservation ? (
-          <View style={{ gap:8 }}>
-            <Text style={s.cardTitle}>Reservation #{selectedReservation.id}</Text>
-            <Text style={s.cardSub}>Locker: {selectedReservation.slot}</Text>
-            {selectedReservation.date ? <Text style={s.cardSub}>Reservation date: {fd(selectedReservation.date)}</Text> : null}
-            {selectedReservation.time ? <Text style={s.cardSub}>Starting time: {ft(selectedReservation.time)}</Text> : null}
-            {selectedReservation.endTime ? <Text style={s.cardSub}>Ending time: {ft(selectedReservation.endTime)}</Text> : null}
-            {selectedReservation.durationMinutes != null
-              ? <Text style={s.cardSub}>Duration: {selectedReservation.wholeDay ? 'Whole Day' : `${selectedReservation.durationMinutes} minutes`}</Text>
-              : null}
-            <Text style={s.cardSub}>Reservation status: {selectedReservationStatus}</Text>
-            <Text style={s.cardSub}>Payment status: {selectedPaymentStatus}</Text>
-            {selectedReservation.totalPrice != null ? <Text style={s.cardSub}>Total payment: PHP {Number(selectedReservation.totalPrice).toFixed(2)}</Text> : null}
-            <Text style={s.cardSub}>Helmet stored: {selectedReservation.stored ? 'Yes' : 'No'}</Text>
-            <Text style={s.cardSub}>QR code: {selectedQrAvailable ? 'Available' : 'Not available'}</Text>
-            {selectedPayment?.rejectionReason
-              ? <Text style={s.cardSub}>Payment rejection reason: {selectedPayment.rejectionReason}</Text>
-              : null}
+          <View style={staticStyles.riderDetailContent}>
+            <View style={[staticStyles.riderDetailHero, { backgroundColor:c.goldBg }]}>
+              <View style={[staticStyles.riderDetailHeroIcon, { backgroundColor:c.card }]}><Ionicons name="calendar-outline" size={25} color={c.gold} /></View>
+              <View style={staticStyles.riderDetailHeroCopy}>
+                <Text style={dynamicStyles.riderDetailEyebrow({ c })}>RESERVATION</Text>
+                <Text style={dynamicStyles.riderDetailHeroTitle({ c })}>#{selectedReservation.id}</Text>
+              </View>
+              <Tag kind={selectedReservationStatus === 'Cancelled' || selectedReservationStatus === 'Expired' ? 'bad' : selectedReservationStatus === 'Completed' ? 'mute' : 'gold'} text={selectedReservationStatus} />
+            </View>
+            <View style={[staticStyles.riderDetailSection, { backgroundColor:c.card, borderColor:c.line }]}>
+              <Text style={dynamicStyles.riderDetailSectionTitle({ c })}>Booking details</Text>
+              <DetailLine c={c} icon="file-tray-stacked-outline" label="Locker" value={`Locker ${selectedReservation.slot}`} />
+              {selectedReservation.date ? <DetailLine c={c} icon="calendar-outline" label="Date" value={fd(selectedReservation.date)} /> : null}
+              {selectedReservation.time ? <DetailLine c={c} icon="time-outline" label="Starting time" value={ft(selectedReservation.time)} /> : null}
+              {selectedReservation.endTime ? <DetailLine c={c} icon="time-outline" label="Ending time" value={ft(selectedReservation.endTime)} /> : null}
+              {selectedReservation.durationMinutes != null ? <DetailLine c={c} icon="hourglass-outline" label="Duration" value={selectedReservation.wholeDay ? 'Whole Day' : `${selectedReservation.durationMinutes} minutes`} /> : null}
+            </View>
+            <View style={[staticStyles.riderDetailSection, { backgroundColor:c.card, borderColor:c.line }]}>
+              <Text style={dynamicStyles.riderDetailSectionTitle({ c })}>Payment and access</Text>
+              <DetailLine c={c} icon="card-outline" label="Payment status" value={selectedPaymentStatus} />
+              {selectedReservation.totalPrice != null ? <DetailLine c={c} icon="cash-outline" label="Total payment" value={`PHP ${Number(selectedReservation.totalPrice).toFixed(2)}`} /> : null}
+              <DetailLine c={c} icon="shield-checkmark-outline" label="Helmet stored" value={selectedReservation.stored ? 'Yes' : 'No'} />
+              <DetailLine c={c} icon="qr-code-outline" label="QR code" value={selectedQrAvailable ? 'Available' : 'Not available'} />
+              {selectedPayment?.rejectionReason ? <View style={[staticStyles.riderDetailNotice, { backgroundColor:c.badBg }]}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={{ color:c.bad, flex:1, fontWeight:'600' }}>{selectedPayment.rejectionReason}</Text></View> : null}
+            </View>
           </View>
         ) : null}
       </InfoModal>
@@ -757,16 +845,34 @@ function Reservations({ mode = 'booking' }) {
         <View style={staticStyles.riderReservationsView7}><Btn full label={extensionBusy ? 'Submitting…' : 'Submit extension payment'} onPress={extensionBusy ? undefined : submitExtension} /></View>
       </InfoModal>
       <InfoModal visible={!!payFor} title="Submit reservation payment" onClose={() => paymentBusy ? null : setPayFor(null)}>
-        <Text style={[s.cardSub, staticStyles.cabinetScannerText3]}>Required amount: {PAYMENT_CURRENCY} {Number(payAmount).toFixed(2)}. Finance must review your receipt before your QR code is released.</Text>
-        <Btn variant="outline" icon="image-outline" label={receipt ? 'Replace receipt image' : 'Upload receipt image'} onPress={pickReceipt} />
-        {receipt ? (
-          <View style={[s.row, staticStyles.riderReservationsView26]}>
-            <Image source={{ uri: receipt }} style={staticStyles.riderReservationsImage27} />
-        <Btn small variant="outline" icon="trash-outline" label="Remove receipt" onPress={() => { setReceipt(''); setReceiptFile(null); setPaymentError(''); }} />
+        <View style={staticStyles.riderPaymentForm}>
+          <View style={[staticStyles.riderPaymentAmountCard, { backgroundColor:c.soft, borderColor:c.line }]}>
+            <View><Text style={dynamicStyles.riderPaymentLabel({ c })}>AMOUNT DUE</Text><Text style={dynamicStyles.riderPaymentAmount({ c })}>{PAYMENT_CURRENCY} {Number(payAmount).toFixed(2)}</Text></View>
+            <Ionicons name="receipt-outline" size={23} color={c.gold} />
           </View>
-        ) : null}
-        {paymentError ? <Text style={[s.err, staticStyles.cabinetScannerView12]}>{paymentError}</Text> : null}
-        <View style={staticStyles.riderReservationsView7}><Btn full label={paymentBusy ? 'Submitting…' : 'Submit payment'} onPress={paymentBusy ? undefined : handleSubmitPayment} /></View>
+          <Text style={[s.muted, staticStyles.riderPaymentInstruction]}>Upload your payment receipt. Finance will verify it before your QR code is available.</Text>
+          <View style={staticStyles.riderPaymentReceiptSection}>
+            <View style={staticStyles.riderPaymentReceiptHeading}>
+              <Text style={s.cardTitle}>Payment receipt</Text>
+              <Text style={dynamicStyles.riderPaymentRequired({ c })}>Required</Text>
+            </View>
+            <Btn full variant="outline" icon="image-outline" label={receipt ? 'Replace receipt image' : 'Upload receipt image'} onPress={pickReceipt} />
+            {receipt ? (
+              <View style={[staticStyles.riderPaymentReceiptPreview, { backgroundColor:c.soft, borderColor:c.line }]}>
+                <Image source={{ uri: receipt }} style={staticStyles.riderPaymentReceiptImage} />
+                <View style={staticStyles.riderPaymentReceiptCopy}>
+                  <Text style={{ color:c.text, fontWeight:'700' }}>Receipt selected</Text>
+                  <Text style={s.muted}>Ready to submit for review</Text>
+                </View>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Remove receipt" onPress={() => { setReceipt(''); setReceiptFile(null); setPaymentError(''); }} style={staticStyles.riderPaymentRemoveReceipt}>
+                  <Ionicons name="trash-outline" size={18} color={c.bad} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+          {paymentError ? <Text style={[s.err, staticStyles.cabinetScannerView12]}>{paymentError}</Text> : null}
+          <View style={staticStyles.riderReservationsView7}><Btn full icon="checkmark-circle-outline" label={paymentBusy ? 'Submitting…' : 'Submit payment'} onPress={paymentBusy ? undefined : handleSubmitPayment} /></View>
+        </View>
       </InfoModal>
     </Layout>
   );

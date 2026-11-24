@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "app",
+    "name": "HelMate",
     "slug": "app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -22,9 +22,18 @@
     },
     "plugins": [
       [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#08122b",
+          "image": "./assets/helmate-splash.png",
+          "imageWidth": 320,
+          "resizeMode": "contain"
+        }
+      ],
+      [
         "expo-camera",
         {
-          "cameraPermission": "Allow SHSRS to access your camera to scan student ID QR codes.",
+          "cameraPermission": "Allow HelMate to access your camera to scan student ID QR codes.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }

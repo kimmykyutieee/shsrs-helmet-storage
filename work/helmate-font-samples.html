@@ -1,0 +1,78 @@
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Nunito+Sans:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&family=Poppins:wght@500;600;700;800&display=swap');
+#helmate-font-samples {
+  color-scheme: light dark;
+  --hm-navy: #0b1b3a;
+  --hm-blue: #17397f;
+  --hm-gold: #d4a017;
+}
+#helmate-font-samples [data-variant] { padding: 12px 8px 30px; }
+#helmate-font-samples .sample-stage { min-height: 560px; display: grid; place-items: center; }
+#helmate-font-samples .phone {
+  width: min(360px, calc(100vw - 42px));
+  min-height: 500px;
+  box-sizing: border-box;
+  padding: 30px 26px;
+  border-radius: 28px;
+  background: light-dark(#f2f5fb, #080e1c);
+  color: light-dark(#0f172a, #e8ecf5);
+  box-shadow: 0 20px 60px #07142d33;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+#helmate-font-samples .brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 30px; color: var(--hm-navy); }
+#helmate-font-samples .brand-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 14px; background: #0b1b3a; color: #f3ce61; }
+#helmate-font-samples .brand-name { font-family: Outfit, Arial, sans-serif; font-size: 23px; line-height: 1.15; font-weight: 700; letter-spacing: -.6px; }
+#helmate-font-samples .brand-name.dark { color: light-dark(#17397f, #f1d16d); }
+#helmate-font-samples .login-title { font-size: 25px; line-height: 1.2; font-weight: 700; letter-spacing: -.55px; margin: 0 0 6px; }
+#helmate-font-samples .caption { color: light-dark(#64748b, #93a0ba); font-size: 14px; line-height: 1.5; margin: 0 0 24px; }
+#helmate-font-samples .field { margin-bottom: 16px; }
+#helmate-font-samples .label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 7px; }
+#helmate-font-samples .input { height: 48px; border: 1px solid light-dark(#e3e8f2, #1e2a47); background: light-dark(#f6f8fd, #0d1627); color: light-dark(#0f172a, #e8ecf5); border-radius: 12px; display: flex; align-items: center; padding: 0 13px; font-size: 14px; }
+#helmate-font-samples .input.placeholder { color: light-dark(#64748b, #93a0ba); }
+#helmate-font-samples .submit { height: 48px; display: grid; place-items: center; border-radius: 12px; background: var(--hm-navy); color: #fff; font-size: 15px; font-weight: 600; margin-top: 5px; }
+#helmate-font-samples .switch { text-align: center; color: light-dark(#64748b, #93a0ba); font-size: 13px; margin: 20px 0 0; }
+#helmate-font-samples .switch strong { color: #b7791f; font-weight: 700; }
+#helmate-font-samples [data-variant="Poppins + Inter"] .phone { font-family: Inter, Arial, sans-serif; }
+#helmate-font-samples [data-variant="Poppins + Inter"] .login-title { font-family: Poppins, Arial, sans-serif; }
+#helmate-font-samples [data-variant="DM Sans"] .phone { font-family: 'DM Sans', Arial, sans-serif; }
+#helmate-font-samples [data-variant="DM Sans"] .login-title { font-family: 'DM Sans', Arial, sans-serif; }
+#helmate-font-samples [data-variant="Nunito Sans + Poppins"] .phone { font-family: 'Nunito Sans', Arial, sans-serif; }
+#helmate-font-samples [data-variant="Nunito Sans + Poppins"] .login-title { font-family: Poppins, Arial, sans-serif; }
+</style>
+<div id="helmate-font-samples" class="viz-carousel viz-dotted-background" aria-label="HelMate login font samples">
+  <section data-variant="Poppins + Inter" aria-label="Poppins headings with Inter form text">
+    <div class="sample-stage"><div class="phone">
+      <div class="brand"><div class="brand-icon"><i data-lucide="shield-check" aria-hidden="true"></i></div><div class="brand-name dark">HelMate</div></div>
+      <h1 class="login-title">Welcome back!</h1>
+      <p class="caption">Log in to continue to your reservations.</p>
+      <div class="field"><span class="label">Email</span><div class="input placeholder">you@example.com</div></div>
+      <div class="field"><span class="label">Password</span><div class="input placeholder">Enter your password</div></div>
+      <div class="submit">Log in</div>
+      <p class="switch">Need an account? <strong>Register</strong></p>
+    </div></div>
+  </section>
+  <section data-variant="DM Sans" aria-label="DM Sans throughout" hidden>
+    <div class="sample-stage"><div class="phone">
+      <div class="brand"><div class="brand-icon"><i data-lucide="shield-check" aria-hidden="true"></i></div><div class="brand-name dark">HelMate</div></div>
+      <h1 class="login-title">Welcome back!</h1>
+      <p class="caption">Log in to continue to your reservations.</p>
+      <div class="field"><span class="label">Email</span><div class="input placeholder">you@example.com</div></div>
+      <div class="field"><span class="label">Password</span><div class="input placeholder">Enter your password</div></div>
+      <div class="submit">Log in</div>
+      <p class="switch">Need an account? <strong>Register</strong></p>
+    </div></div>
+  </section>
+  <section data-variant="Nunito Sans + Poppins" aria-label="Poppins headings with Nunito Sans form text" hidden>
+    <div class="sample-stage"><div class="phone">
+      <div class="brand"><div class="brand-icon"><i data-lucide="shield-check" aria-hidden="true"></i></div><div class="brand-name dark">HelMate</div></div>
+      <h1 class="login-title">Welcome back!</h1>
+      <p class="caption">Log in to continue to your reservations.</p>
+      <div class="field"><span class="label">Email</span><div class="input placeholder">you@example.com</div></div>
+      <div class="field"><span class="label">Password</span><div class="input placeholder">Enter your password</div></div>
+      <div class="submit">Log in</div>
+      <p class="switch">Need an account? <strong>Register</strong></p>
+    </div></div>
+  </section>
+</div>

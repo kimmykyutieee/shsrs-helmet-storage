@@ -3,6 +3,7 @@ import { StyleSheet } from 'react-native';
 const staticStyles = StyleSheet.create({
   appView2: { maxWidth: 460, width: '100%', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 20, padding: 26, gap: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
   appText3: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  appTextBrand: { color: '#fff', fontSize: 34, fontWeight: '900', letterSpacing: 0.4, textAlign: 'center', marginTop: -4 },
   appText4: { color: '#fca5a5' },
   appText5: { color: '#9fb1d6', lineHeight: 21 },
   appText7: { fontWeight: '800', color: '#1a1304' },

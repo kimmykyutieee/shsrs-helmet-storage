@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { useApp } from '../../shared/hooks/useApp';
 import { deleteAdminUser, updateAdminUser } from '../../services/userService';
 import { confirmBox } from '../../shared/utils/actions';
 import { okMail } from '../../shared/utils/date';
-import { Layout, Btn, InfoModal, Tag } from '../../components';
+import { Layout, Btn, InfoModal, Tag, IconBox } from '../../components';
 import { staticStyles, dynamicStyles } from '../../components/admin.styles';
 
 function AdminUsers() {
@@ -23,7 +23,7 @@ function AdminUsers() {
     if (user.admin) return toast('Administrator accounts cannot be deleted.');
     confirmBox(
       'Delete user',
-      `Delete ${user.name}? Accounts with existing reservation, payment, extension, refund, notification, or cabinet activity records cannot be deleted.`,
+      `Delete ${user.name}? Accounts with existing reservation, payment, extension, refund, notification, or locker activity records cannot be deleted.`,
       'Delete user',
       async () => {
         setBusyUser(user.id);
@@ -47,7 +47,7 @@ function AdminUsers() {
     setSaving(true);
     setEditError('');
     try {
-      await updateAdminUser(userId, { name, email, role: editingUser.role });
+      await updateAdminUser(userId, { name, email });
       await refresh();
       setEditingUser(null);
       toast('User details updated.');
@@ -64,13 +64,16 @@ function AdminUsers() {
   };
 
   return (
-    <Layout cur="adminUsers" title="Users" subtitle="Manage Finance and Security role access.">
-      <View style={s.card}>
-        <Text style={s.cardTitle}>Users</Text>
-        <Text style={[s.cardSub, staticStyles.adminUsersText1]}>{db.users.length} registered</Text>
-        {db.users.map((user, index) => (
-          <View key={user.id} style={dynamicStyles.adminUsersView2({ c, db, index })}>
+    <Layout cur="adminUsers" title="Users" subtitle="Manage accounts. Staff roles are set in the database.">
+      <View style={staticStyles.adminUsersList}>
+        <View style={staticStyles.adminUsersListHeader}>
+          <View><Text style={s.cardTitle}>User accounts</Text><Text style={s.cardSub}>Manage rider accounts and view staff access</Text></View>
+          <Text style={[s.cardSub, staticStyles.adminUsersCount, dynamicStyles.adminUsersCount({ c })]}>{db.users.length} total</Text>
+        </View>
+        {db.users.length ? db.users.map((user) => (
+          <View key={user.id} style={[s.card, staticStyles.adminUserCard]}>
             <View style={staticStyles.adminUsersIdentity}>
+              <View style={[staticStyles.adminUserAvatar, { backgroundColor:c.goldBg }]}><Text style={{ color:c.gold, fontWeight:'800', fontSize:16 }}>{user.name?.[0]?.toUpperCase() || '?'}</Text></View>
               <View style={staticStyles.adminReservationsView3}>
                 <Text style={dynamicStyles.adminUsersText4({ c })}>{user.name}</Text>
                 <Text style={s.muted}>{user.email}</Text>
@@ -79,10 +82,10 @@ function AdminUsers() {
             </View>
             <View style={staticStyles.adminUsersActions}>
               <Btn small variant="outline" label="Edit" onPress={busyUser === user.id ? undefined : () => openEdit(user)} />
-              <Btn small variant="outline" icon="trash-outline" label="Delete" onPress={busyUser === user.id ? undefined : () => removeUser(user)} />
+              {!user.admin && !user.finance && !user.security ? <Btn small variant="outline" icon="trash-outline" label="Delete" onPress={busyUser === user.id ? undefined : () => removeUser(user)} /> : null}
             </View>
           </View>
-        ))}
+        )) : <View style={[s.card, staticStyles.adminEmptyState]}><IconBox icon="people-outline" tone="gold" size={48} /><Text style={s.empty}>No user accounts found.</Text></View>}
       </View>
       <InfoModal visible={!!editingUser} title="Edit user" onClose={closeEdit}>
         {editingUser ? (
@@ -115,26 +118,7 @@ function AdminUsers() {
             </View>
             <View style={staticStyles.adminUsersModalField}>
               <Text style={s.label}>Role</Text>
-              {editingUser.role === 'Admin' ? (
-                <Text style={s.cardSub}>Admin role cannot be reassigned.</Text>
-              ) : (
-                <View style={staticStyles.adminUsersRoleOptions}>
-                  {['Rider', 'Finance', 'Security'].map((role) => {
-                    const selected = editingUser.role === role;
-                    return (
-                      <TouchableOpacity
-                        key={role}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected }}
-                        onPress={() => { setEditingUser((current) => ({ ...current, role })); setEditError(''); }}
-                        style={[staticStyles.adminUsersRoleOption, dynamicStyles.adminUsersRoleOption({ c, selected, disabled: false })]}
-                      >
-                        <Text style={{ color: selected ? c.text : c.muted, fontWeight: selected ? '700' : '500' }}>{role}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
+              <Text style={s.cardSub}>{editingUser.role} · Role is managed in the database.</Text>
             </View>
             {editError ? <Text style={[s.err, staticStyles.adminUsersModalField]}>{editError}</Text> : null}
             <View style={staticStyles.adminUsersModalActions}>

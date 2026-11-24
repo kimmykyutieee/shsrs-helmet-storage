@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Pressable, ScrollView, StyleSheet, Modal, Image, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import Svg, { Path, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../shared/hooks/useApp';
 import { NAVY, NAVY2, GOLD, lift, NAV, ADMIN_NAV, FINANCE_NAV, SECURITY_NAV, SLOTS, WEB } from '../shared/constants/theme';
@@ -18,21 +18,10 @@ import RoleHeader from './RoleHeader';
 import FinanceProfile from '../screens/finance/FinanceProfile';
 import { staticStyles, dynamicStyles, buttonVariant, tagColors, iconBoxColors } from './common.styles';
 
+let headerRefreshInFlight = false;
+
 function Shield({ size = 40 }) {
-  return (
-    <Svg width={size} height={size * 1.12} viewBox="0 0 100 112">
-      <Defs>
-        <LinearGradient id="sg" x1="0" y1="0" x2="1" y2="1">
-          <Stop offset="0" stopColor="#f7e07a" /><Stop offset="0.5" stopColor="#d4a017" /><Stop offset="1" stopColor="#8a6508" />
-        </LinearGradient>
-      </Defs>
-      <Path d="M50 4 92 18v38c0 28-18 44-42 52C26 100 8 84 8 56V18z" fill="url(#sg)" />
-      <Path d="M50 12 84 24v32c0 22-14 36-34 43C30 92 16 78 16 56V24z" fill="none" stroke="#ffffff66" strokeWidth="1.5" />
-      <Path d="M27 66c-1-18 8-30 24-30 14 0 24 9 24 24v8c0 2-1 3-3 3H30c-2 0-3-2-3-5z" fill="#0b0b0d" />
-      <Path d="M33 62c2-9 9-14 18-13" fill="none" stroke="#ddd" strokeWidth="3" strokeLinecap="round" />
-      <Path d="M38 66h36" stroke="#ddd" strokeWidth="3" strokeLinecap="round" />
-    </Svg>
-  );
+  return <Image source={require('../assets/helmet-logo.png')} style={{ width: size, height: size }} resizeMode="contain" fadeDuration={0} accessibilityLabel="HelMate logo" />;
 }
 
 function Gradient({ id, from = NAVY, to = NAVY2, style }) {
@@ -48,26 +37,26 @@ function Gradient({ id, from = NAVY, to = NAVY2, style }) {
   );
 }
 
-function Btn({ label, onPress, icon, variant = 'primary', small, style, full }) {
+function Btn({ label, onPress, icon, variant = 'primary', small, style, full, fontFamily }) {
   const { c } = useApp();
   const V = buttonVariant(c, variant);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [dynamicStyles.indexPressable1({ V, full, pressed, small }), style]}>
       {icon ? <Ionicons name={icon} size={small ? 16 : 18} color={V.fg} /> : null}
-      {label ? <Text style={dynamicStyles.indexText2({ V, small })}>{label}</Text> : null}
+      {label ? <Text style={[dynamicStyles.indexText2({ V, small }), fontFamily ? { fontFamily } : null]}>{label}</Text> : null}
     </Pressable>
   );
 }
 
-function Field({ label, icon, secure, ...p }) {
+function Field({ label, icon, secure, fontFamily, labelFontFamily, ...p }) {
   const { s, c } = useApp();
   const [show, setShow] = useState(false);
   return (
     <View style={s.fld}>
-      {label ? <Text style={s.label}>{label}</Text> : null}
+      {label ? <Text style={[s.label, labelFontFamily ? { fontFamily: labelFontFamily } : null]}>{label}</Text> : null}
       <View style={staticStyles.indexView3}>
         {icon ? <Ionicons name={icon} size={18} color={c.muted} style={staticStyles.indexIonicons4} /> : null}
-        <TextInput style={[s.input, icon && staticStyles.indexTextInput5, secure && staticStyles.indexTextInput6]} placeholderTextColor={c.muted} autoCapitalize="none" secureTextEntry={secure && !show} {...p} />
+        <TextInput style={[s.input, fontFamily ? { fontFamily } : null, icon && staticStyles.indexTextInput5, secure && staticStyles.indexTextInput6]} placeholderTextColor={c.muted} autoCapitalize="none" secureTextEntry={secure && !show} {...p} />
         {secure ? (
           <TouchableOpacity onPress={() => setShow(!show)} style={staticStyles.indexTouchableOpacity7}>
             <Ionicons name={show ? 'eye-off-outline' : 'eye-outline'} size={19} color={c.muted} />
@@ -143,35 +132,41 @@ function DateTimeFields({ date, time, onDate, onTime, dateOnly = false }) {
         {!dateOnly ? renderBox('t', time ? ft(time) : '', 'Select time', 'time-outline') : null}
       </View>
       {show === 'd' && (
-        <DateTimePicker value={date ? dt(date, '00:00') : new Date()} mode="date" minimumDate={midnight}
-          display={ios ? 'inline' : 'default'} themeVariant={c.dark ? 'dark' : 'light'}
-          onChange={(e, v) => { if (!ios) setShow(null); if (e.type !== 'dismissed' && v) onDate(ymd(v)); }} />
+        <View style={staticStyles.indexDatePickerContainer}>
+          <DateTimePicker value={date ? dt(date, '00:00') : new Date()} mode="date" minimumDate={midnight}
+            display={ios ? 'inline' : 'default'} themeVariant="light"
+            onChange={(e, v) => { if (!ios) setShow(null); if (e.type !== 'dismissed' && v) onDate(ymd(v)); }} />
+        </View>
       )}
       {!dateOnly && show === 't' && (
         <DateTimePicker value={time ? dt(today(), time) : new Date()} mode="time"
-          display={ios ? 'spinner' : 'default'} themeVariant={c.dark ? 'dark' : 'light'}
+          display={ios ? 'spinner' : 'default'} themeVariant="light"
           onChange={(e, v) => { if (!ios) setShow(null); if (e.type !== 'dismissed' && v) onTime(hm(v)); }} />
       )}
     </View>
   );
 }
 
-function SlotGrid({ taken, blocked, sel, onSel, admin, onAdminTap }) {
+function SlotGrid({ taken, blocked, sel, onSel, admin, onAdminTap, reservationCounts = {} }) {
   const { c } = useApp();
   return (
     <View style={staticStyles.indexView21}>
       {SLOTS.map((n) => {
         const isBlocked = blocked.includes(n);
+        const hasReservation = taken.has(n);
         const dis = !admin && (isBlocked || taken.has(n));
         const on = admin ? isBlocked : sel === n;
-        const status = isBlocked ? 'Maintenance' : taken.has(n) ? 'Reserved' : 'Available';
+        const status = isBlocked ? 'Maintenance' : admin && hasReservation
+          ? `${reservationCounts[n] || 0} reserved`
+          : hasReservation ? 'Reserved' : 'Available';
         const fg = on ? c.onPrimary : dis ? c.muted : c.text;
         return (
           <Pressable key={n} disabled={dis} onPress={() => (admin ? onAdminTap(n) : onSel(n))}
             style={({ pressed }) => (dynamicStyles.indexPressable22({ c, dis, on, pressed }))}>
-            <Ionicons name={isBlocked ? 'construct-outline' : dis ? 'lock-closed-outline' : on ? 'checkmark-circle' : 'lock-open-outline'} size={18} color={fg} />
-            <Text style={dynamicStyles.indexText23({ dis, fg, isBlocked })}>Slot {n}</Text>
-            <Text style={dynamicStyles.indexText24({ c, on })}>{admin ? (isBlocked ? 'Maintenance' : 'Active') : status}</Text>
+            <Ionicons name={isBlocked ? 'construct-outline' : hasReservation ? 'calendar-outline' : dis ? 'lock-closed-outline' : on ? 'checkmark-circle' : 'lock-open-outline'} size={18} color={fg} />
+            <Text style={dynamicStyles.indexText23({ dis, fg, isBlocked })}>Locker {n}</Text>
+            <Text style={dynamicStyles.indexText24({ c, on })}>{status}</Text>
+            {admin && isBlocked && hasReservation ? <Text style={dynamicStyles.indexText24({ c, on: false })}>{reservationCounts[n]} reserved</Text> : null}
           </Pressable>
         );
       })}
@@ -180,13 +175,31 @@ function SlotGrid({ taken, blocked, sel, onSel, admin, onAdminTap }) {
 }
 
 /* ============================== layout (sidebar on desktop · tab bar on phone) ============================== */
-function Layout({ cur, title, subtitle, children }) {
-  const { c, s, me, nav, logout, toggleTheme, wide } = useApp();
+function Layout({ cur, title, subtitle, children, onRefresh, refreshing = false }) {
+  const { c, s, me, nav, logout, toggleTheme, wide, refresh, toast } = useApp();
   const [menu, setMenu] = useState(false);
   const isRider = !me.finance && !me.admin && !me.security;
   const Sidebar = me.finance ? FinanceSidebar : me.admin ? AdminSidebar : me.security ? SecuritySidebar : RiderSidebar;
   const Header = me.finance ? FinanceHeader : me.admin ? AdminHeader : me.security ? RoleHeader : RiderHeader;
   const items = me.finance ? FINANCE_NAV : me.admin ? ADMIN_NAV : me.security ? SECURITY_NAV : NAV;
+  const refreshAction = (
+    <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityLabel={refreshing ? 'Refreshing data' : 'Refresh data'}
+      accessibilityState={{ disabled:refreshing }}
+      disabled={refreshing}
+      onPress={async () => {
+        if (refreshing || headerRefreshInFlight) return;
+        headerRefreshInFlight = true;
+        try { await (onRefresh || refresh)(); }
+        catch (error) { toast(error.message); }
+        finally { headerRefreshInFlight = false; }
+      }}
+      style={staticStyles.appHeaderRefreshButton}
+    >
+      <Ionicons name={refreshing ? 'time-outline' : 'refresh-outline'} size={21} color={wide ? c.text : '#fff'} />
+    </TouchableOpacity>
+  );
 
   const content = (
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={dynamicStyles.indexContentContainer1({ wide })}>
@@ -232,7 +245,7 @@ function Layout({ cur, title, subtitle, children }) {
           <View>
             <TouchableOpacity onPress={() => nav('dashboard')} style={staticStyles.indexTouchableOpacity39}>
               <Shield size={34} />
-              <View><Text style={staticStyles.indexText40}>SHSRS</Text><Text style={staticStyles.indexText41}>Helmet Storage System</Text></View>
+              <View><Text style={staticStyles.indexText40}>HelMate</Text><Text style={staticStyles.indexText41}>Helmet Storage System</Text></View>
             </TouchableOpacity>
             <Text style={staticStyles.indexText42}>MENU</Text>
             <Sidebar cur={cur} nav={nav} />
@@ -259,6 +272,7 @@ function Layout({ cur, title, subtitle, children }) {
                 <Avatar u={me} size={38} ring />
               </TouchableOpacity>
             ) : null}
+            rightControl={refreshAction}
           />
           {content}
         </View>
@@ -271,7 +285,7 @@ function Layout({ cur, title, subtitle, children }) {
     <SafeAreaView style={s.fill} edges={['top']}>
       <View style={dynamicStyles.indexView48({ NAVY })}>
         <TouchableOpacity onPress={() => nav('dashboard')} style={staticStyles.indexTouchableOpacity49}>
-          <Shield size={28} /><Text style={staticStyles.indexText50}>SHSRS</Text>
+          <Shield size={28} /><Text style={staticStyles.indexText50}>HelMate</Text>
         </TouchableOpacity>
         {isRider ? (
           <RiderHeader
@@ -281,8 +295,23 @@ function Layout({ cur, title, subtitle, children }) {
                 <Avatar u={me} size={36} ring />
               </TouchableOpacity>
             )}
+            rightControl={refreshAction}
           />
-        ) : <TouchableOpacity onPress={() => setMenu(true)}><Avatar u={me} size={36} ring /></TouchableOpacity>}
+        ) : me.finance ? (
+          <View style={staticStyles.appHeaderControls}>
+            {refreshAction}
+            <TouchableOpacity accessibilityLabel="Open finance account menu" onPress={() => setMenu(true)} style={staticStyles.appHeaderProfile}>
+              <Avatar u={me} size={36} ring />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={staticStyles.appHeaderControls}>
+            {refreshAction}
+            <TouchableOpacity accessibilityLabel={`Open ${me.admin ? 'admin' : 'security'} account menu`} onPress={() => setMenu(true)} style={staticStyles.appHeaderProfile}>
+              <Avatar u={me} size={36} ring />
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
       {content}
       <SafeAreaView edges={['bottom']} style={dynamicStyles.indexSafeAreaView51({ c })}>
@@ -320,13 +349,13 @@ function Stat({ icon, value, label, tone }) {
 
 function LogList({ list, who }) {
   const { db, s, c } = useApp();
-  if (!list.length) return <Text style={s.empty}>No cabinet activity yet.</Text>;
+  if (!list.length) return <Text style={s.empty}>No locker activity yet.</Text>;
   const nm = (id) => (db.users.find((x) => x.id === id) || { name: 'Deleted user' }).name;
   return list.map((x, i) => (
     <View key={i} style={dynamicStyles.indexView59({ c, i, list })}>
       <IconBox icon={x.act === 'Stored' ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline'} tone={x.act === 'Stored' ? 'gold' : 'primary'} size={40} />
       <View style={staticStyles.indexView44}>
-        <Text style={dynamicStyles.indexText61({ c })}>Reservation #{x.rid} · Slot {x.slot}{who ? ` · ${nm(x.uid)}` : ''}</Text>
+        <Text style={dynamicStyles.indexText61({ c })}>Reservation #{x.rid} · Locker {x.slot}{who ? ` · ${nm(x.uid)}` : ''}</Text>
         <Text style={s.muted}>{stamp(x.ts)}</Text>
       </View>
       <Tag kind={x.act === 'Stored' ? 'gold' : 'mute'} text={x.act} />
@@ -335,3 +364,6 @@ function LogList({ list, who }) {
 }
 
 export { Shield, Gradient, Btn, Field, Tag, Avatar, IconBox, InfoModal, DateTimeFields, SlotGrid, Layout, Stat, LogList };
+
+
+

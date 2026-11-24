@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { PAYMENT_STATUS_LABELS } from '../../shared/constants/config';
 import { useApp } from '../../shared/hooks/useApp';
 import { fd, ft } from '../../shared/utils/date';
@@ -27,26 +27,41 @@ function PaymentVerification({ payment, busy, onViewReceipt, onProcess }) {
   };
   return (
     <>
-      <View style={dynamicStyles.paymentVerificationView1({ c })}>
-        <View style={staticStyles.paymentVerificationView2}>
-          <Text style={s.cardTitle}>Payment #{payment.id}</Text><Tag kind="gold" text={PAYMENT_STATUS_LABELS[payment.status] || payment.status} />
-        </View>
-        <Text style={[s.text, staticStyles.paymentVerificationText3]}>{payment.studentName} · Reservation #{payment.reservationId}</Text>
-        <Text style={s.muted}>Slot {payment.slot} · {fd(payment.date)} · {ft(payment.time)}</Text>
-        <Text style={s.muted}>{amountLabel(payment.amount)}</Text>
-        <Text style={s.muted}>Submitted {dateLabel(payment.submittedAt)}</Text>
-        <Pressable onPress={() => onViewReceipt(payment)} style={staticStyles.paymentVerificationPressable4}>
-          <View style={dynamicStyles.paymentVerificationView5({ c })}>
-            <Text style={dynamicStyles.paymentVerificationText6({ c })}>View receipt</Text>
+      <View style={dynamicStyles.financeRecordCard({ c })}>
+        <View style={staticStyles.financeQueueHeader}>
+          <View style={staticStyles.financeRecordIdentity}>
+            <Text style={s.cardSub}>PAYMENT REVIEW</Text>
+            <Text style={s.cardTitle}>Payment #{payment.id}</Text>
+            <Text style={s.cardSub}>{payment.studentName}</Text>
           </View>
-        </Pressable>
-        <View style={[s.row, staticStyles.paymentVerificationView7]}>
+          <Tag kind="gold" text={PAYMENT_STATUS_LABELS[payment.status] || payment.status} />
+        </View>
+        <View style={[staticStyles.financeRecordDetails, { borderColor:c.line }]}>
+          <View style={staticStyles.financeRecordDetailRow}>
+            <Text style={s.muted}>Reservation</Text>
+            <Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>#{payment.reservationId} · Locker {payment.slot}</Text>
+          </View>
+          <View style={staticStyles.financeRecordDetailRow}>
+            <Text style={s.muted}>Reserved for</Text>
+            <Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{fd(payment.date)} · {ft(payment.time)}</Text>
+          </View>
+          <View style={staticStyles.financeRecordDetailRow}>
+            <Text style={s.muted}>Submitted</Text>
+            <Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{dateLabel(payment.submittedAt)}</Text>
+          </View>
+        </View>
+        <View style={[staticStyles.financeRecordAmount,{ backgroundColor:c.soft,borderColor:c.line }]}>
+          <Text style={s.muted}>Amount paid</Text>
+          <Text style={dynamicStyles.financeRecordAmount({ c, emphasis:true })}>{amountLabel(payment.amount)}</Text>
+        </View>
+        <Btn small variant="outline" icon="image-outline" label="View receipt" onPress={() => onViewReceipt(payment)} />
+        <View style={[staticStyles.financeRecordActions,{ borderColor:c.line }]}>
           <Btn small variant="primary" icon="checkmark-circle-outline" label="Approve" onPress={busy === payment.id ? undefined : () => onProcess(payment, 'verify')} />
           <Btn small variant="danger" icon="close-circle-outline" label="Reject" onPress={busy === payment.id ? undefined : () => { setReason(''); setReasonError(''); setRejecting(true); }} />
         </View>
         {busy === payment.id ? <Text style={[s.muted, staticStyles.paymentVerificationText3]}>Processing…</Text> : null}
       </View>
-      <InfoModal visible={rejecting} title={`Reject payment #${payment.id}`} onClose={() => setRejecting(false)}>
+      <InfoModal visible={rejecting} title={`Reject payment ID #${payment.id}`} onClose={() => setRejecting(false)}>
         <Text style={s.cardSub}>Enter the reason that will be included in the rider&apos;s notification.</Text>
         <TextInput
           accessibilityLabel="Payment rejection reason"

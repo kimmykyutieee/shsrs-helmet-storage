@@ -8,17 +8,16 @@ import { staticStyles, dynamicStyles } from '../../components/rider.styles';
 function Guide() {
   const { s, c } = useApp();
   const steps = [
-    ['card-outline', 'Submit payment and wait for Finance verification', 'Your reservation QR code is available only after payment is verified.'],
-    ['walk-outline', 'Go to your reserved storage cabinet', 'Head to the cabinet area at your reserved time.'],
-    ['qr-code-outline', 'Present your QR code to Security staff', 'Security staff scan your reservation pass with the Camera Scanner.'],
-    ['lock-open-outline', 'Wait for access verification', 'The app verifies your reservation and payment from 30 minutes before your reserved time until the end of that day.'],
-    ['shield-checkmark-outline', 'Store or retrieve your helmet safely', 'Security records the storage or retrieval action. This prototype does not directly control a physical cabinet lock.'],
+    ['calendar-outline', 'Reserve a locker', 'Choose an available locker, date, and time for your visit.'],
+    ['card-outline', 'Submit your payment', 'Upload your receipt and wait for Finance to verify it.'],
+    ['qr-code-outline', 'Open your reservation QR', 'Your QR pass is available after payment verification, at your reservation start time.'],
+    ['walk-outline', 'Show the QR to Security', 'Go to the locker area and present your pass to Security staff to scan.'],
+    ['shield-checkmark-outline', 'Store or retrieve your helmet', 'Security records the activity and confirms when it is complete.'],
   ];
   return (
-    <Layout cur="guide" title="Cabinet Access Guide" subtitle="How to use your reserved storage cabinet.">
+    <Layout cur="guide" title="Locker Access Guide" subtitle="How to use your reserved locker.">
       <View style={[s.card, staticStyles.accessGuideView1]}>
-        <Text style={s.eyebrow}>How to use</Text>
-        <Text style={dynamicStyles.accessGuideText2({ c })}>Five steps to your helmet</Text>
+        <Text style={dynamicStyles.accessGuideText2({ c })}>HOW TO USE?</Text>
         {steps.map(([ico, t, d], i) => (
           <View key={t} style={staticStyles.accessGuideView3}>
             <View style={staticStyles.accessGuideView4}>

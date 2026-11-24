@@ -11,13 +11,13 @@ function SlotAvailability() {
   const slots = db.slots || [];
 
   return (
-    <Layout cur={me.security ? 'securitySlots' : 'slots'} title="Slots" subtitle="Live availability from the configured cabinet slots.">
+    <Layout cur={me.security ? 'securitySlots' : 'slots'} title="Lockers" subtitle="Current locker availability.">
       <View style={s.card}>
-        <Text style={s.cardTitle}>Prototype cabinet</Text>
+        <Text style={s.cardTitle}>Locker bank</Text>
         <Text style={[s.cardSub, staticStyles.slotAvailabilityText1]}>
-          The system currently models one physical prototype cabinet. Slot numbers below are read from the database.
+          Availability for each locker is shown below.
         </Text>
-        {!slots.length ? <Text style={s.empty}>No cabinet slots are configured.</Text> : slots.map((slot) => {
+        {!slots.length ? <Text style={s.empty}>No lockers are configured.</Text> : slots.map((slot) => {
           const reservations = (db.slotReservations || [])
             .filter((item) => Number(item.slot) === Number(slot.slot) && item.date >= date)
             .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
@@ -30,7 +30,7 @@ function SlotAvailability() {
                 <Text style={dynamicStyles.slotAvailabilityText4({ c })}>{slot.slot}</Text>
               </View>
               <View style={staticStyles.slotAvailabilityView5}>
-                <Text style={dynamicStyles.slotAvailabilityText6({ c })}>Prototype cabinet · Slot {slot.slot}</Text>
+                <Text style={dynamicStyles.slotAvailabilityText6({ c })}>Locker {slot.slot}</Text>
                 <Text style={s.muted}>{reservation ? `${fd(reservation.date)} · ${ft(reservation.time)}` : `Available on ${fd(date)}`}</Text>
               </View>
               <Tag text={status} kind={kind} />

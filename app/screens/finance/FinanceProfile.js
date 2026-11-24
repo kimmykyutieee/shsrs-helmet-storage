@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text, View } from 'react-native';
+import { dynamicStyles } from '../../components/finance.styles';
 
 function FinanceProfile({ user, Avatar, c }) {
   return (
@@ -11,4 +12,3 @@ function FinanceProfile({ user, Avatar, c }) {
 }
 
 export default FinanceProfile;
-import { staticStyles, dynamicStyles } from '../../components/finance.styles';

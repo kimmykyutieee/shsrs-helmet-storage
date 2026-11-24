@@ -3,7 +3,7 @@ import { Text, View } from 'react-native';
 import { longDate } from '../shared/utils/date';
 import { staticStyles, dynamicStyles } from './navigation.styles';
 
-function RoleHeader({ title, subtitle, s, c }) {
+function RoleHeader({ title, subtitle, s, c, rightControl }) {
   return (
     <View style={staticStyles.roleHeaderView1}>
       <View>
@@ -11,6 +11,7 @@ function RoleHeader({ title, subtitle, s, c }) {
         <Text style={dynamicStyles.roleHeaderText2({ c })}>{title}</Text>
         {subtitle ? <Text style={[s.muted, staticStyles.roleHeaderText3]}>{subtitle}</Text> : null}
       </View>
+      {rightControl || null}
     </View>
   );
 }
