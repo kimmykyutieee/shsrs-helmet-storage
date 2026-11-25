@@ -39,20 +39,36 @@ function AdminReservations() {
           <View><Text style={s.cardTitle}>All reservations</Text><Text style={s.cardSub}>Review bookings and locker status</Text></View>
           <Btn small variant="outline" icon="download-outline" label="Export CSV" onPress={exportCSV} />
         </View>
-        {reservations.length ? reservations.map((reservation, index) => (
+        {reservations.length ? reservations.map((reservation) => {
+          const retrieved = reservation.status === 'Used';
+          const statusText = retrieved
+            ? 'Completed'
+            : reservation.status === 'Cancelled'
+              ? 'Cancelled'
+              : reservation.status === 'Expired'
+                ? 'Expired'
+                : reservation.status === 'Active'
+                  ? 'Active'
+                  : reservation.status === 'Confirmed'
+                    ? 'Confirmed'
+                    : reservation.status === 'Pending'
+                      ? 'Pending'
+                      : isPast(reservation) ? 'Past due' : 'Upcoming';
+          const tagKind = retrieved ? 'mute' : ['Cancelled', 'Expired'].includes(reservation.status) ? 'bad' : ['Active', 'Confirmed'].includes(reservation.status) ? 'ok' : 'gold';
+          return (
           <View key={reservation.id} style={[s.card, staticStyles.adminReservationCard]}>
             <View style={[staticStyles.adminReservationIcon, { backgroundColor:c.goldBg }]}><Text style={{ color:c.gold, fontWeight:'800' }}>{String(reservation.slot).padStart(2,'0')}</Text></View>
             <View style={staticStyles.adminReservationsView3}>
               <View style={staticStyles.adminReservationTitleRow}>
                 <Text style={dynamicStyles.adminReservationsText4({ c })}>Locker {reservation.slot}</Text>
-                <Tag kind={isPast(reservation) ? 'mute' : 'ok'} text={isPast(reservation) ? 'Completed' : 'Upcoming'} />
+                <Tag kind={tagKind} text={statusText} />
               </View>
               <Text style={s.muted}>{userName(reservation.uid)} · Reservation #{reservation.id}</Text>
-              <Text style={[s.muted, staticStyles.adminReservationDate]}>{fd(reservation.date)} · {ft(reservation.time)}{reservation.stored ? ' · Helmet stored' : ''}</Text>
+              <Text style={[s.muted, staticStyles.adminReservationDate]}>{fd(reservation.date)} · {ft(reservation.time)}{reservation.stored ? ' · Helmet stored' : retrieved ? ' · Helmet retrieved' : ''}</Text>
             </View>
-            <Btn small variant="outline" icon="trash-outline" label="Cancel" onPress={() => cancel(reservation.id)} />
+            {!['Cancelled', 'Expired', 'Used'].includes(reservation.status) ? <Btn small variant="outline" icon="trash-outline" label="Cancel" onPress={() => cancel(reservation.id)} /> : null}
           </View>
-        )) : <View style={[s.card, staticStyles.adminEmptyState]}><IconBox icon="calendar-outline" tone="gold" size={48} /><Text style={s.empty}>No reservations yet.</Text></View>}
+        ); }) : <View style={[s.card, staticStyles.adminEmptyState]}><IconBox icon="calendar-outline" tone="gold" size={48} /><Text style={s.empty}>No reservations yet.</Text></View>}
       </View>
     </Layout>
   );

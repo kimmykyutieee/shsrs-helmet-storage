@@ -97,7 +97,8 @@
     "undici-types": "^8.9.0",
     "unpipe": "^1.0.0",
     "utils-merge": "^1.0.1",
-    "vary": "^1.1.2"
+    "vary": "^1.1.2",
+    "web-push": "^4.0.0"
   },
   "scripts": {
     "test": "node --test",

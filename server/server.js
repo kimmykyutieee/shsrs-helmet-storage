@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
+const webpush = require('web-push');
 const { MAX_RECEIPT_BYTES, validateReceiptImage } = require('./receiptImage');
 const { calculateSchedule, timeMinutes } = require('./reservationSchedule');
 // Load server/.env
@@ -29,8 +30,16 @@ const PORT = process.env.PORT || 3000;
 const SECRET = process.env.JWT_SECRET || 'change-this-secret';
 const DEVICE_ID = process.env.ESP32_DEVICE_ID || 'cabinet-esp32-01';
 const DEVICE_TOKEN = process.env.ESP32_DEVICE_TOKEN || '';
+const ALLOW_SCAN_WITHOUT_ESP32 = String(process.env.ALLOW_SCAN_WITHOUT_ESP32 || '').toLowerCase() === 'true';
 const QR_SECRET = process.env.QR_SECRET || SECRET;
 const SERVO_UNLOCK_MS = 1500;
+const WEB_PUSH_PUBLIC_KEY = process.env.WEB_PUSH_PUBLIC_KEY || '';
+const WEB_PUSH_PRIVATE_KEY = process.env.WEB_PUSH_PRIVATE_KEY || '';
+const WEB_PUSH_SUBJECT = process.env.WEB_PUSH_SUBJECT || 'mailto:admin@shsrs.local';
+
+if (WEB_PUSH_PUBLIC_KEY && WEB_PUSH_PRIVATE_KEY) {
+  webpush.setVapidDetails(WEB_PUSH_SUBJECT, WEB_PUSH_PUBLIC_KEY, WEB_PUSH_PRIVATE_KEY);
+}
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 3306,
@@ -113,6 +122,99 @@ const riderOrAdmin = (req, res, next) => (!req.finance && !req.security ? next()
 const scannerAccess = (req, res, next) => (req.admin || req.security ? next() : bad(res, 'Security or Admin access only.', 403));
 const token = (uid) => jwt.sign({ uid }, SECRET, { expiresIn: '30d' });
 
+const hashPushToken = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
+
+const removePushTokensByHashes = async (hashes) => {
+  const list = [...new Set((hashes || []).filter(Boolean))];
+  if (!list.length) return;
+  await pool.query('DELETE FROM push_tokens WHERE token_hash IN (?)', [list]);
+};
+
+const sendExpoPushMessages = async (messages) => {
+  const valid = (messages || []).filter((m) => m && m.to);
+  if (!valid.length) return;
+  const response = await fetch('https://exp.host/--/api/v2/push/send', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Accept-Encoding': 'gzip, deflate',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(valid),
+  });
+  const json = await response.json().catch(() => ({}));
+  const tickets = Array.isArray(json.data) ? json.data : (json.data ? [json.data] : []);
+  const staleHashes = [];
+  tickets.forEach((ticket, index) => {
+    if (ticket?.status === 'error' && ticket?.details?.error === 'DeviceNotRegistered') {
+      const hash = valid[index]?.__tokenHash;
+      if (hash) staleHashes.push(hash);
+    }
+  });
+  if (staleHashes.length) await removePushTokensByHashes(staleHashes);
+};
+
+const sendWebPushMessage = async (tokenRow, payload) => {
+  if (!WEB_PUSH_PUBLIC_KEY || !WEB_PUSH_PRIVATE_KEY) return;
+  let subscription;
+  try { subscription = JSON.parse(tokenRow.token); } catch (_e) { return; }
+  try {
+    await webpush.sendNotification(subscription, JSON.stringify(payload));
+  } catch (error) {
+    if (error?.statusCode === 404 || error?.statusCode === 410) {
+      await removePushTokensByHashes([tokenRow.token_hash]);
+      return;
+    }
+    throw error;
+  }
+};
+
+const dispatchPushNotification = async ({ eventKey, userId, title, message, type, reservationId = null, refundId = null }) => {
+  try {
+    if (eventKey) {
+      const [[exists]] = await pool.query('SELECT id FROM notifications WHERE event_key=? LIMIT 1', [eventKey]);
+      if (!exists) return;
+    }
+    const [tokens] = await pool.query(
+      'SELECT id,platform,token,token_hash FROM push_tokens WHERE user_id=?',
+      [userId],
+    );
+    if (!tokens.length) return;
+    const data = {
+      eventKey: eventKey || '',
+      type: type || '',
+      reservationId: reservationId == null ? '' : String(reservationId),
+      refundId: refundId == null ? '' : String(refundId),
+    };
+    const expoMessages = [];
+    const webJobs = [];
+    for (const row of tokens) {
+      if (row.platform === 'expo') {
+        expoMessages.push({
+          to: row.token,
+          sound: 'default',
+          title,
+          body: message,
+          data,
+          channelId: 'default',
+          __tokenHash: row.token_hash,
+        });
+      } else if (row.platform === 'web') {
+        webJobs.push(sendWebPushMessage(row, { title, body: message, data }));
+      }
+    }
+    if (expoMessages.length) await sendExpoPushMessages(expoMessages);
+    if (webJobs.length) {
+      const results = await Promise.allSettled(webJobs);
+      results.forEach((result) => {
+        if (result.status === 'rejected') console.error('Web push dispatch failed:', result.reason?.message || result.reason);
+      });
+    }
+  } catch (error) {
+    console.error('Push dispatch failed:', error?.message || error);
+  }
+};
+
 const createNotification = async (connection, { eventKey, userId, title, message, type, reservationId = null, refundId = null }) => {
   if (!eventKey) throw new Error('Notification event key is required.');
   const [result] = await connection.query(
@@ -121,6 +223,13 @@ const createNotification = async (connection, { eventKey, userId, title, message
      VALUES (?,?,?,?,?,?,?)`,
     [eventKey, userId, title, message, type, reservationId, refundId],
   );
+  if (result.affectedRows > 0) {
+    setTimeout(() => {
+      dispatchPushNotification({ eventKey, userId, title, message, type, reservationId, refundId }).catch((error) => {
+        console.error('Push dispatch failed:', error?.message || error);
+      });
+    }, 1000);
+  }
   return result.affectedRows > 0;
 };
 
@@ -150,7 +259,7 @@ const processReservationAutomation = async () => {
         userId: r.user_id,
         title: 'Reservation expired',
         message: r.stored
-          ? `Reservation #${r.id} for locker ${r.slot_no} expired after the 10-minute grace period. Your stored helmet remains secured in the locker.`
+          ? `Reservation #${r.id} for locker ${r.slot_no} expired after the 10-minute grace period. Your stored helmet remains secured in the locker. You may request an extension to retrieve it.`
           : `Reservation #${r.id} for locker ${r.slot_no} expired because helmet storage was not recorded within the 10-minute grace period.`,
         type: 'RESERVATION_EXPIRED',
         reservationId: r.id,
@@ -317,7 +426,7 @@ app.get('/api/data', auth, wrap(async (req, res) => {
   const [res1] = req.admin
     ? await pool.query("SELECT id,user_id AS uid,slot_no AS slot,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,duration_minutes AS durationMinutes,is_whole_day AS wholeDay,total_price AS totalPrice,stored,actual_storage_ts AS actualStorageTs,grace_deadline AS graceDeadline,status FROM reservations ORDER BY res_date,res_time")
     : await pool.query("SELECT id,user_id AS uid,slot_no AS slot,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,duration_minutes AS durationMinutes,is_whole_day AS wholeDay,total_price AS totalPrice,stored,actual_storage_ts AS actualStorageTs,grace_deadline AS graceDeadline,status FROM reservations WHERE user_id=? ORDER BY id DESC", [req.uid]);
-  const [slotReservations] = await pool.query('SELECT slot_no AS slot,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,status FROM reservations WHERE status NOT IN (\'Expired\',\'Cancelled\') ORDER BY res_date,res_time');
+  const [slotReservations] = await pool.query('SELECT slot_no AS slot,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,status,stored FROM reservations WHERE status NOT IN (\'Cancelled\',\'Used\') AND (status <> \'Expired\' OR stored = 1) ORDER BY res_date,res_time');
   const [slotRows] = await pool.query('SELECT slot_no AS slot, is_blocked AS blocked FROM slots ORDER BY slot_no');
   const slots = slotRows.map((slot) => ({ ...slot, blocked: !!slot.blocked }));
   const blocked = slots.filter((slot) => slot.blocked).map((slot) => slot.slot);
@@ -537,14 +646,30 @@ const decidePayment = (status) => wrap(async (req, res) => {
         await connection.rollback();
         return bad(res, 'The approved extension would end after 9:00 PM.', 409);
       }
+      const [[overlap]] = await connection.query(
+        `SELECT id FROM reservations
+         WHERE slot_no=? AND res_date=? AND id<>? AND status NOT IN ('Cancelled','Used')
+           AND (status <> 'Expired' OR stored = 1)
+           AND TIME_TO_SEC(res_time) < ?
+           AND CASE WHEN status='Expired' AND stored=1 THEN TIME_TO_SEC('21:00:00') ELSE TIME_TO_SEC(COALESCE(end_time,'21:00:00')) END > ?
+         LIMIT 1`,
+        [payment.slot, payment.date, payment.reservationId, approvedMinutes * 60, start * 60],
+      );
+      if (overlap) {
+        await connection.rollback();
+        return bad(res, 'The extension conflicts with another reservation and cannot be approved.', 409);
+      }
       const approvedEnd = `${String(Math.floor(approvedMinutes / 60)).padStart(2,'0')}:${String(approvedMinutes % 60).padStart(2,'0')}`;
       await connection.query(
         `UPDATE reservations
          SET end_time=?,duration_minutes=COALESCE(duration_minutes,0)+?,total_price=COALESCE(total_price,0)+?,
-             grace_deadline=TIMESTAMP(res_date,ADDTIME(?, '00:10:00')),
+             grace_deadline=CASE
+               WHEN stored=1 THEN GREATEST(TIMESTAMP(res_date,ADDTIME(?, '00:10:00')), DATE_ADD(NOW(), INTERVAL 10 MINUTE))
+               ELSE TIMESTAMP(res_date,ADDTIME(?, '00:10:00'))
+             END,
              status=CASE WHEN stored=1 THEN 'Active' ELSE 'Confirmed' END
          WHERE id=?`,
-        [approvedEnd + ':00', extension.additional_minutes, extension.additional_fee, approvedEnd + ':00', payment.reservationId],
+        [approvedEnd + ':00', extension.additional_minutes, extension.additional_fee, approvedEnd + ':00', approvedEnd + ':00', payment.reservationId],
       );
       await connection.query(
         "UPDATE reservation_extensions SET status='Approved',processed_by=?,processed_at=CURRENT_TIMESTAMP,approved_end_time=? WHERE id=?",
@@ -634,7 +759,7 @@ app.get('/api/finance/extensions', auth, financeOnly, wrap(async (req, res) => {
      JOIN reservations r ON r.id=e.reservation_id
      JOIN payments p ON p.id=e.payment_id
      WHERE e.status='Pending' AND p.status='Pending' AND p.payment_type='Extension'
-       AND r.status IN ('Confirmed','Active')
+       AND (r.status IN ('Confirmed','Active') OR (r.status='Expired' AND r.stored=1))
      ORDER BY e.created_at ASC`,
   );
   res.json({ extensions });
@@ -765,6 +890,59 @@ app.post('/api/notifications/read-all', auth, wrap(async (req, res) => {
   res.json({ ok:true });
 }));
 
+/* ---------- push notifications ---------- */
+const normalizePushRegistration = (body) => {
+  const platform = String(body?.platform || '').trim().toLowerCase();
+  if (platform === 'expo') {
+    const token = String(body?.token || '').trim();
+    if (!/^Expo(nent)?PushToken\[[^\]]+\]$/.test(token)) return { error: 'A valid Expo push token is required.' };
+    return { platform, token, tokenHash: hashPushToken(token) };
+  }
+  if (platform === 'web') {
+    let subscription = body?.token;
+    if (typeof subscription === 'string') {
+      try { subscription = JSON.parse(subscription); } catch (_e) { return { error: 'A valid web push subscription is required.' }; }
+    }
+    const endpoint = String(subscription?.endpoint || '').trim();
+    const p256dh = String(subscription?.keys?.p256dh || '').trim();
+    const authKey = String(subscription?.keys?.auth || '').trim();
+    if (!endpoint || !p256dh || !authKey) return { error: 'A valid web push subscription is required.' };
+    const token = JSON.stringify({ endpoint, expirationTime: subscription.expirationTime ?? null, keys: { p256dh, auth: authKey } });
+    return { platform, token, tokenHash: hashPushToken(token) };
+  }
+  return { error: 'Push platform must be expo or web.' };
+};
+
+app.get('/api/push/vapid-public-key', (_req, res) => {
+  res.json({ publicKey: WEB_PUSH_PUBLIC_KEY || '' });
+});
+
+app.post('/api/push/register', auth, wrap(async (req, res) => {
+  const normalized = normalizePushRegistration(req.body);
+  if (normalized.error) return bad(res, normalized.error, 400);
+  const deviceLabel = String(req.body?.deviceLabel || '').trim().slice(0, 200) || null;
+  await pool.query(
+    `INSERT INTO push_tokens (user_id, platform, token, token_hash, device_label, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, NOW())
+     ON DUPLICATE KEY UPDATE
+       user_id=VALUES(user_id),
+       platform=VALUES(platform),
+       token=VALUES(token),
+       device_label=VALUES(device_label),
+       last_seen_at=NOW(),
+       updated_at=CURRENT_TIMESTAMP`,
+    [req.uid, normalized.platform, normalized.token, normalized.tokenHash, deviceLabel],
+  );
+  res.json({ ok: true });
+}));
+
+app.post('/api/push/unregister', auth, wrap(async (req, res) => {
+  const normalized = normalizePushRegistration(req.body);
+  if (normalized.error) return bad(res, normalized.error, 400);
+  await pool.query('DELETE FROM push_tokens WHERE token_hash=? AND user_id=?', [normalized.tokenHash, req.uid]);
+  res.json({ ok: true });
+}));
+
 /* ---------- reservation QR authorization ---------- */
 app.get('/api/reservations/:id/qr', auth, riderOrAdmin, wrap(async (req, res) => {
   const reservationId = parseInt(req.params.id, 10);
@@ -820,8 +998,10 @@ app.post('/api/reservations', auth, riderOrAdmin, wrap(async (req, res) => {
   const endMinutes = timeMinutes(schedule.endTime);
   const [[overlap]] = await pool.query(
     `SELECT id FROM reservations
-     WHERE slot_no=? AND res_date=? AND status NOT IN ('Expired','Cancelled')
-       AND TIME_TO_SEC(res_time) < ? AND TIME_TO_SEC(COALESCE(end_time,'21:00:00')) > ?
+     WHERE slot_no=? AND res_date=? AND status NOT IN ('Cancelled','Used')
+       AND (status <> 'Expired' OR stored = 1)
+       AND TIME_TO_SEC(res_time) < ?
+       AND CASE WHEN status='Expired' AND stored=1 THEN TIME_TO_SEC('21:00:00') ELSE TIME_TO_SEC(COALESCE(end_time,'21:00:00')) END > ?
      LIMIT 1`,
     [slot, date, endMinutes * 60, startMinutes * 60],
   );
@@ -865,13 +1045,14 @@ app.post('/api/reservations/:id/extensions', auth, riderOrAdmin, upload.single('
   try {
     await connection.beginTransaction();
     const [[reservation]] = await connection.query(
-      'SELECT id,user_id,slot_no,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,status,stored FROM reservations WHERE id=? AND user_id=? FOR UPDATE',
+      'SELECT id,user_id,slot_no,res_date AS date,LEFT(res_time,5) AS time,LEFT(end_time,5) AS endTime,status,stored,grace_deadline FROM reservations WHERE id=? AND user_id=? FOR UPDATE',
       [id, req.uid],
     );
     if (!reservation) { await connection.rollback(); return bad(res, 'Reservation not found.', 404); }
-    if (!['Confirmed','Active'].includes(reservation.status)) {
+    const canExtendExpiredStored = reservation.status === 'Expired' && Number(reservation.stored) === 1;
+    if (!['Confirmed','Active'].includes(reservation.status) && !canExtendExpiredStored) {
       await connection.rollback();
-      return bad(res, 'This reservation is not eligible for extension.', 409);
+      return bad(res, 'This reservation is not eligible for extension. Expired reservations can only be extended when the helmet is still stored and has not been retrieved.', 409);
     }
     const [[verified]] = await connection.query(
       "SELECT id FROM payments WHERE reservation_id=? AND status='Verified' AND payment_type='Original' LIMIT 1",
@@ -885,39 +1066,74 @@ app.post('/api/reservations/:id/extensions', auth, riderOrAdmin, upload.single('
     if (pending) { await connection.rollback(); return bad(res, 'A duplicate extension request is already pending.', 409); }
 
     const previousMinutes = timeMinutes(reservation.endTime);
-    const approvedMinutes = previousMinutes + additionalMinutes;
+    let billedMinutes = additionalMinutes;
+    if (canExtendExpiredStored) {
+      const [[dbTime]] = await connection.query('SELECT UNIX_TIMESTAMP(NOW()) * 1000 AS nowMs');
+      const nowMs = Number(dbTime.nowMs);
+      const graceMs = reservation.grace_deadline
+        ? new Date(reservation.grace_deadline).getTime()
+        : dt(reservation.date, reservation.endTime || '21:00').getTime() + 10 * 60000;
+      const lateMs = Math.max(0, nowMs - graceMs);
+      billedMinutes = Math.max(15, Math.ceil(lateMs / (15 * 60000)) * 15);
+    }
+    const approvedMinutes = previousMinutes + billedMinutes;
     if (approvedMinutes > 1260) { await connection.rollback(); return bad(res, 'The extension would end after 9:00 PM.', 400); }
     const [[overlap]] = await connection.query(
       `SELECT id FROM reservations
-       WHERE slot_no=? AND res_date=? AND id<>? AND status NOT IN ('Expired','Cancelled')
-         AND TIME_TO_SEC(res_time) < ? AND TIME_TO_SEC(COALESCE(end_time,'21:00:00')) > ?
+       WHERE slot_no=? AND res_date=? AND id<>? AND status NOT IN ('Cancelled','Used')
+         AND (status <> 'Expired' OR stored = 1)
+         AND TIME_TO_SEC(res_time) < ?
+         AND CASE WHEN status='Expired' AND stored=1 THEN TIME_TO_SEC('21:00:00') ELSE TIME_TO_SEC(COALESCE(end_time,'21:00:00')) END > ?
        LIMIT 1`,
       [reservation.slot_no, reservation.date, id, approvedMinutes * 60, previousMinutes * 60],
     );
     if (overlap) { await connection.rollback(); return bad(res, 'The extension conflicts with another reservation.', 409); }
 
-    let receipt = '';
-    if (req.file) {
-      let image;
-      try { image = await validateReceiptImage(req.file.buffer); }
-      catch (e) { await connection.rollback(); return bad(res, 'Upload a valid payment receipt image.'); }
-      const filename = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.${image.extension}`;
-      storedPath = path.join(uploadDir, filename);
-      await fs.promises.mkdir(uploadDir, { recursive: true });
-      await fs.promises.writeFile(storedPath, image.buffer, { flag: 'wx' });
-      receipt = `/uploads/receipts/${filename}`;
-    } else {
-      receipt = String(req.body.receipt || '').trim();
-      if (!receipt) { await connection.rollback(); return bad(res, 'Upload a receipt image for the extension payment.', 400); }
+    let imageBuffer = req.file && req.file.buffer;
+    if (!imageBuffer) {
+      const dataUrl = String(req.body.receipt || '').trim();
+      const match = dataUrl.match(/^data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/]*={0,2})$/i);
+      if (!match) { await connection.rollback(); return bad(res, 'Upload a valid image file.'); }
+      if (match[1].length > Math.ceil(MAX_RECEIPT_BYTES / 3) * 4) {
+        await connection.rollback();
+        return bad(res, 'The image must be 5 MB or smaller.', 413);
+      }
+      imageBuffer = Buffer.from(match[1], 'base64');
     }
 
-    const fee = (additionalMinutes / 15) * 5;
+    let image;
+    try {
+      image = await validateReceiptImage(imageBuffer);
+    } catch (e) {
+      await connection.rollback();
+      const validationMessages = [
+        'The image must be 5 MB or smaller.',
+        'Choose a non-empty image file.',
+        'The file is not a supported image.',
+        'The image file is corrupted or unsupported.',
+        'This BMP encoding is not supported. Please convert it to JPG or PNG.',
+        'Animated GIF receipts are not supported. Choose a static image.',
+        'The image dimensions are too large to process.',
+      ];
+      if (validationMessages.includes(e.message)) {
+        return bad(res, e.message, e.message === 'The image must be 5 MB or smaller.' ? 413 : 400);
+      }
+      return bad(res, 'The image file is corrupted or unsupported.');
+    }
+
+    const filename = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.${image.extension}`;
+    storedPath = path.join(uploadDir, filename);
+    await fs.promises.mkdir(uploadDir, { recursive: true });
+    await fs.promises.writeFile(storedPath, image.buffer, { flag: 'wx' });
+    const receipt = `/uploads/receipts/${filename}`;
+
+    const fee = (billedMinutes / 15) * 5;
     const approvedEnd = `${String(Math.floor(approvedMinutes / 60)).padStart(2,'0')}:${String(approvedMinutes % 60).padStart(2,'0')}`;
     const [extension] = await connection.query(
       `INSERT INTO reservation_extensions
        (reservation_id,user_id,additional_minutes,additional_fee,previous_end_time,approved_end_time,status)
        VALUES (?,?,?,?,?,?,'Pending')`,
-      [id, req.uid, additionalMinutes, fee, reservation.endTime + ':00', approvedEnd + ':00'],
+      [id, req.uid, billedMinutes, fee, reservation.endTime + ':00', approvedEnd + ':00'],
     );
     const [payment] = await connection.query(
       `INSERT INTO payments
@@ -930,7 +1146,9 @@ app.post('/api/reservations/:id/extensions', auth, riderOrAdmin, upload.single('
       eventKey: `extension:${extension.insertId}:submitted`,
       userId: req.uid,
       title: 'Extension payment pending verification',
-      message: `Your ${additionalMinutes}-minute extension payment for reservation #${id} is awaiting Finance verification.`,
+      message: canExtendExpiredStored
+        ? `Your late-retrieval extension payment for reservation #${id} covers ${billedMinutes} minute(s) after the 10-minute grace period (PHP ${Number(fee).toFixed(2)}). Finance verification is required before you can retrieve your helmet.`
+        : `Your ${billedMinutes}-minute extension payment for reservation #${id} is awaiting Finance verification.`,
       type: 'EXTENSION_PENDING',
       reservationId: id,
     });
@@ -940,14 +1158,16 @@ app.post('/api/reservations/:id/extensions', auth, riderOrAdmin, upload.single('
         eventKey: `finance:extension:${extension.insertId}:pending:${financeUser.id}`,
         userId: financeUser.id,
         title: 'Extension verification required',
-        message: `A rider submitted a ${additionalMinutes}-minute extension payment for reservation #${id}.`,
+        message: canExtendExpiredStored
+          ? `A rider submitted a late-retrieval extension for reservation #${id}: ${billedMinutes} minute(s) after grace, PHP ${Number(fee).toFixed(2)}.`
+          : `A rider submitted a ${billedMinutes}-minute extension payment for reservation #${id}.`,
         type: 'EXTENSION_PENDING_FINANCE',
         reservationId: id,
       });
     }
     await connection.commit();
     storedPath = null;
-    res.json({ id: extension.insertId, status: 'Pending', additionalMinutes, fee, paymentId: payment.insertId });
+    res.json({ id: extension.insertId, status: 'Pending', additionalMinutes: billedMinutes, fee, paymentId: payment.insertId });
   } catch (e) {
     await connection.rollback();
     if (storedPath) { try { await fs.promises.unlink(storedPath); } catch (_) {} }
@@ -1080,9 +1300,10 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
       {}, 'INVALID');
   }
 
-  if (!DEVICE_TOKEN) {
+  const devScanBypass = !DEVICE_TOKEN && ALLOW_SCAN_WITHOUT_ESP32;
+  if (!DEVICE_TOKEN && !ALLOW_SCAN_WITHOUT_ESP32) {
     await recordScanAttempt('ERROR');
-    return bad(res, 'ESP32 is not configured. Set ESP32_DEVICE_TOKEN in server/.env; the cabinet remains locked.', 503);
+    return bad(res, 'ESP32 is not configured. Set ESP32_DEVICE_TOKEN in server/.env; the cabinet remains locked. For local testing only, set ALLOW_SCAN_WITHOUT_ESP32=true.', 503);
   }
 
   const connection = await pool.getConnection();
@@ -1125,7 +1346,8 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
         {}, 'INVALID', { id: r.id, userId: r.user_id, slotNo: r.slot_no });
     }
 
-    if (!['Confirmed','Active','Used'].includes(r.status) || !r.payment_verified) {
+    const canScanExpiredStored = r.status === 'Expired' && Number(r.stored) === 1;
+    if ((!['Confirmed','Active','Used'].includes(r.status) && !canScanExpiredStored) || !r.payment_verified) {
       await connection.rollback();
       return out(false, 'Payment not verified',
         'Finance must verify payment before this reservation can be used.',
@@ -1153,7 +1375,7 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
         {}, 'DENIED', { id: r.id, userId: r.user_id, slotNo: r.slot_no });
     }
 
-    if (now > validUntil) {
+    if (now > validUntil && !canScanExpiredStored) {
       await connection.rollback();
       return out(false, 'Reservation expired',
         'The reservation and 10-minute grace period have ended.',
@@ -1180,17 +1402,23 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
         req.security ? code.slice(0, 2048) : null, req.security ? req.uid : null]
     );
 
-    const [command] = await connection.query(
-      `INSERT INTO esp32_commands
-       (reservation_id,user_id,slot_no,action,status,expires_at)
-       VALUES (?,?,?,?,'queued',DATE_ADD(NOW(), INTERVAL 30 SECOND))`,
-      [r.id, r.user_id, r.slot_no, action]
-    );
+    let commandId = null;
+    if (!devScanBypass) {
+      const [command] = await connection.query(
+        `INSERT INTO esp32_commands
+         (reservation_id,user_id,slot_no,action,status,expires_at)
+         VALUES (?,?,?,?,'queued',DATE_ADD(NOW(), INTERVAL 30 SECOND))`,
+        [r.id, r.user_id, r.slot_no, action]
+      );
+      commandId = command.insertId;
+    }
 
     await connection.commit();
 
     return out(true, 'Reservation verified',
-      `Slot ${r.slot_no}: ${action.toLowerCase()} recorded. The cabinet unlock command was queued.`,
+      devScanBypass
+        ? `Slot ${r.slot_no}: ${action.toLowerCase()} recorded. ESP32 is not configured; unlock was simulated for local testing.`
+        : `Slot ${r.slot_no}: ${action.toLowerCase()} recorded. The cabinet unlock command was queued.`,
       {
         reservation: {
           id: r.id,
@@ -1201,9 +1429,10 @@ app.post('/api/scan', auth, scannerAccess, wrap(async (req, res) => {
         },
         action,
         hardware: {
-          commandId: command.insertId,
+          commandId,
           deviceId: DEVICE_ID,
-          unlockDurationMs: SERVO_UNLOCK_MS
+          unlockDurationMs: SERVO_UNLOCK_MS,
+          simulated: devScanBypass,
         }
       }, 'VALID'
     );
@@ -1312,23 +1541,18 @@ app.delete('/api/admin/users/:id', auth, adminOnly, wrap(async (req, res) => {
       return bad(res, 'Staff accounts are managed in the database and cannot be deleted here.', 409);
     }
 
-    const [[related]] = await connection.query(
-      `SELECT
-         EXISTS(SELECT 1 FROM reservations WHERE user_id=?) AS reservationRecords,
-         EXISTS(SELECT 1 FROM payments WHERE user_id=? OR processed_by=?) AS paymentRecords,
-         EXISTS(SELECT 1 FROM reservation_extensions WHERE user_id=? OR processed_by=?) AS extensionRecords,
-         EXISTS(SELECT 1 FROM refunds WHERE user_id=? OR finance_approver_id=?) AS refundRecords,
-         EXISTS(SELECT 1 FROM notifications WHERE user_id=?) AS notificationRecords,
-         EXISTS(SELECT 1 FROM access_log WHERE user_id=? OR scanned_by=?) AS accessRecords,
-         EXISTS(SELECT 1 FROM esp32_commands WHERE user_id=?) AS cabinetCommands`,
-      [userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId],
+    await connection.query(
+      'DELETE FROM esp32_commands WHERE user_id=? OR reservation_id IN (SELECT id FROM reservations WHERE user_id=?)',
+      [userId, userId],
     );
-    if (Object.values(related).some(Boolean)) {
-      await connection.rollback();
-      return bad(res, 'This user has related reservation, payment, extension, refund, notification, or cabinet activity records and cannot be deleted.', 409);
-    }
-
-    await connection.query('DELETE FROM users WHERE id=? AND is_admin=0', [userId]);
+    await connection.query(
+      'DELETE FROM access_log WHERE user_id=? OR scanned_by=? OR reservation_id IN (SELECT id FROM reservations WHERE user_id=?)',
+      [userId, userId, userId],
+    );
+    await connection.query(
+      'DELETE FROM users WHERE id=? AND is_admin=0 AND is_finance=0 AND is_security=0',
+      [userId],
+    );
     await connection.commit();
     res.json({ ok: true });
   } catch (e) {

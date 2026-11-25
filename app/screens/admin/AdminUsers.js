@@ -23,7 +23,7 @@ function AdminUsers() {
     if (user.admin) return toast('Administrator accounts cannot be deleted.');
     confirmBox(
       'Delete user',
-      `Delete ${user.name}? Accounts with existing reservation, payment, extension, refund, notification, or locker activity records cannot be deleted.`,
+      `Delete ${user.name}? This will permanently remove the rider account and all related reservation, payment, extension, refund, notification, access log, and cabinet command records.`,
       'Delete user',
       async () => {
         setBusyUser(user.id);

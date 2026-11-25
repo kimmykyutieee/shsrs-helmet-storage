@@ -14,9 +14,9 @@ function SlotMaintenance() {
   const [maintenanceBusy, setMaintenanceBusy] = useState(false);
   const blockedCount = new Set(db.blocked).size;
   const reservationsByLocker = db.res
-    .filter((reservation) => !['Cancelled', 'Expired', 'Completed'].includes(reservation.status)
-      && (reservation.status === 'Active' || !isPast(reservation)))
-    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
+    .filter((reservation) => !['Cancelled', 'Used', 'Completed'].includes(reservation.status)
+      && (Number(reservation.stored) === 1 || reservation.status === 'Active' || (!isPast(reservation) && reservation.status !== 'Expired')))
+    .sort((a, b) => (Number(b.stored) - Number(a.stored)) || (a.date + a.time).localeCompare(b.date + b.time))
     .reduce((groups, reservation) => {
       const slot = Number(reservation.slot);
       if (!groups[slot]) groups[slot] = [];
@@ -67,7 +67,7 @@ function SlotMaintenance() {
                 <Text style={{ color:c.gold, fontSize:10, fontWeight:'800', letterSpacing:1 }}>LOCKER</Text>
                 <Text style={{ color:c.text, fontSize:19, fontWeight:'800' }}>Locker {selectedLocker}</Text>
               </View>
-              <Tag kind={selectedBlocked ? 'bad' : selectedReservations.length ? 'gold' : 'ok'} text={selectedBlocked ? 'Maintenance' : selectedReservations.length ? 'Reserved' : 'Available'} />
+              <Tag kind={selectedBlocked ? 'bad' : selectedReservations.some((r) => Number(r.stored) === 1) ? 'bad' : selectedReservations.length ? 'gold' : 'ok'} text={selectedBlocked ? 'Maintenance' : selectedReservations.some((r) => Number(r.stored) === 1) ? 'Occupied' : selectedReservations.length ? 'Reserved' : 'Available'} />
             </View>
             <View style={[staticStyles.adminLockerDetailSection, { backgroundColor:c.card, borderColor:c.line }]}>
               <View style={staticStyles.adminLockerReservationsHeading}>
@@ -81,7 +81,7 @@ function SlotMaintenance() {
                     <Text style={{ color:c.text, fontWeight:'700' }}>{reservation.riderName}</Text>
                     <Text style={{ color:c.muted, fontSize:12 }}>Reservation #{reservation.id}</Text>
                   </View>
-                  <Text style={{ color:c.muted, fontSize:12, textAlign:'right' }}>{fd(reservation.date)}{'\n'}{ft(reservation.time)}</Text>
+                  <Text style={{ color:c.muted, fontSize:12, textAlign:'right' }}>{fd(reservation.date)}{'\n'}{ft(reservation.time)}{Number(reservation.stored) === 1 ? '\nHelmet stored' : ''}</Text>
                 </View>
               )) : <Text style={{ color:c.muted }}>No active or upcoming reservations.</Text>}
             </View>

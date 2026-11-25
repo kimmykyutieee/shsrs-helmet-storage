@@ -38,6 +38,13 @@
           "recordAudioAndroid": false
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#08122b"
+        }
+      ],
       "expo-sharing",
       "@react-native-community/datetimepicker",
       "expo-font",

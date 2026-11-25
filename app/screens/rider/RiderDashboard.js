@@ -22,8 +22,12 @@ function SummaryRow({ icon, label, value }) {
 function Dashboard() {
   const { db, me, mine, nav, c, s } = useApp();
   const reservations = mine().filter((reservation) => !['Cancelled', 'Expired', 'Pending Refund Verification'].includes(reservation.status));
-  const takenToday = new Set((db.slotReservations || []).filter((x) => x.date === today()).map((x) => x.slot));
-  const freeToday = (db.slots || []).filter((slot) => !slot.blocked && !takenToday.has(slot.slot)).length;
+  const takenToday = new Set(
+    (db.slotReservations || [])
+      .filter((x) => x.date === today() || Number(x.stored) === 1)
+      .map((x) => Number(x.slot))
+  );
+  const freeToday = (db.slots || []).filter((slot) => !slot.blocked && !takenToday.has(Number(slot.slot))).length;
 
   return (
     <Layout cur="dashboard" title={`${greet()}, ${me.name.split(' ')[0]}!`} subtitle="Your reservations and available lockers.">

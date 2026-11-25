@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { TOKEN_KEY, THEME_KEY } from './shared/constants/config';
 import { NAVY, GOLD, LIGHT, DARK, PROTECTED, lift } from './shared/constants/theme';
 import { api, getToken, setToken } from './services/api';
+import { registerPushNotifications, unregisterPushNotifications, addPushNotificationListeners } from './services/pushNotificationService';
 import { Ctx } from './shared/hooks/useApp';
 import { mk } from './components/theme.styles';
 import { Shield, InfoModal } from './components';
@@ -55,6 +56,7 @@ function Root() {
           setDb(d);
           const user = d.users.find((u) => u.id === d.me);
           setRoute({ n: homeRoute(user), arg: null });
+          registerPushNotifications().catch(() => {});
           return;
         }
         catch (e) { if (/reach/i.test(e.message)) throw e; setToken(null); AsyncStorage.removeItem(TOKEN_KEY); }
@@ -64,6 +66,30 @@ function Root() {
   };
   useEffect(() => { boot(); }, []);
   useEffect(() => { if (getToken()) api('GET', '/api/data').then(setDb).catch(() => {}); }, [route.n]);
+
+  const navRef = useRef(null);
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const me = db?.users?.find((u) => u.id === db.me);
+
+  useEffect(() => {
+    if (!me) return undefined;
+    return addPushNotificationListeners({
+      onReceive: () => { refreshRef.current().catch(() => {}); },
+      onResponse: (response) => {
+        const data = response?.notification?.request?.content?.data || {};
+        const reservationId = data.reservationId ? parseInt(data.reservationId, 10) : null;
+        const type = String(data.type || '');
+        refreshRef.current().catch(() => {});
+        if (me.finance) return navRef.current?.(type.includes('REFUND') ? 'financePending' : 'financePending', reservationId);
+        if (me.security) return navRef.current?.('securityScan', reservationId);
+        if (me.admin) return navRef.current?.('dashboard', reservationId);
+        if (['PAYMENT_VERIFIED', 'QR_AVAILABLE'].includes(type)) return navRef.current?.('qr', reservationId);
+        if (reservationId) return navRef.current?.('myReservations', reservationId);
+        return navRef.current?.('dashboard');
+      },
+    });
+  }, [me?.id, me?.admin, me?.finance, me?.security]);
 
   if (netErr) {
     return (
@@ -91,6 +117,7 @@ function Root() {
   );
 
   const nav = (n, arg = null) => setRoute({ n: n === 'home' ? 'login' : n, arg });
+  navRef.current = nav;
   const toast = (m) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(''), 2800); };
   const signIn = async (tok) => {
     setToken(tok);
@@ -98,9 +125,15 @@ function Root() {
     const data = await refresh();
     const user = data.users.find((u) => u.id === data.me);
     nav(homeRoute(user));
+    registerPushNotifications().catch(() => {});
   };
-  const logout = () => { setToken(null); AsyncStorage.removeItem(TOKEN_KEY); setDb(EMPTY); nav('login'); };
-  const me = db.users.find((u) => u.id === db.me);
+  const logout = async () => {
+    await unregisterPushNotifications().catch(() => {});
+    setToken(null);
+    await AsyncStorage.removeItem(TOKEN_KEY).catch(() => {});
+    setDb(EMPTY);
+    nav('login');
+  };
   const dark = (theme || sys) === 'dark';
   const c = dark ? DARK : LIGHT;
   const s = mk(c);

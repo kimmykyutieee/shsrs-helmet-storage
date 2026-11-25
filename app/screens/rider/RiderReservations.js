@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Image, Platform, ScrollView, TouchableOpacity } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -294,6 +294,31 @@ function Reservations({ mode = 'booking' }) {
   const [extensionReceiptFile, setExtensionReceiptFile] = useState(null);
   const [extensionError, setExtensionError] = useState('');
   const [extensionBusy, setExtensionBusy] = useState(false);
+  const [extensionTick, setExtensionTick] = useState(0);
+  const extensionReservation = extensionFor ? (db.res || []).find((r) => r.id === extensionFor) : null;
+  const isLateRetrievalExtension = extensionReservation?.status === 'Expired' && Number(extensionReservation?.stored) === 1;
+  useEffect(() => {
+    if (!extensionFor || !isLateRetrievalExtension) return undefined;
+    const id = setInterval(() => setExtensionTick((t) => t + 1), 30000);
+    return () => clearInterval(id);
+  }, [extensionFor, isLateRetrievalExtension]);
+  const lateExtensionMinutes = (() => {
+    if (!isLateRetrievalExtension || !extensionReservation) return 15;
+    const grace = extensionReservation.graceDeadline ? new Date(extensionReservation.graceDeadline).getTime() : NaN;
+    if (!Number.isFinite(grace)) return 15;
+    return Math.max(15, Math.ceil(Math.max(0, Date.now() - grace) / (15 * 60000)) * 15 + 0 * extensionTick);
+  })();
+  const effectiveExtensionMinutes = isLateRetrievalExtension ? lateExtensionMinutes : extensionMinutes;
+  const extensionFee = (effectiveExtensionMinutes / 15) * 5;
+  const formatExtensionDuration = (mins) => {
+    const total = Math.max(0, Number(mins) || 0);
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    if (h <= 0) return `${m} minute${m === 1 ? '' : 's'}`;
+    if (m <= 0) return `${h} hour${h === 1 ? '' : 's'}`;
+    return `${h} hour${h === 1 ? '' : 's'} ${m} minute${m === 1 ? '' : 's'}`;
+  };
+  const extensionDurationLabel = formatExtensionDuration(effectiveExtensionMinutes);
 
   const paymentFor = (id) => (db.payments || []).filter((payment) => payment.reservationId === id).sort((a, b) => b.id - a.id)[0];
 
@@ -315,8 +340,10 @@ function Reservations({ mode = 'booking' }) {
         ? 'Reservation must end by 9:00 PM.'
         : '';
 
-  const taken = new Set(rd ? (db.slotReservations || []).filter((r) => r.date === rd).map((r) => r.slot) : []);
-  const eff = db.blocked.includes(sel) || taken.has(sel) ? 0 : sel;
+  const physicallyOccupied = new Set((db.slotReservations || []).filter((r) => Number(r.stored) === 1).map((r) => Number(r.slot)));
+  const taken = new Set(rd ? (db.slotReservations || []).filter((r) => r.date === rd).map((r) => Number(r.slot)) : []);
+  physicallyOccupied.forEach((slot) => taken.add(slot));
+  const eff = db.blocked.includes(Number(sel)) || taken.has(Number(sel)) ? 0 : sel;
   const reviewRows = [
     ['Locker', eff ? `Locker ${eff}` : 'Not selected'],
     ['Date', rd ? fd(rd) : 'Not selected'],
@@ -491,15 +518,44 @@ function Reservations({ mode = 'booking' }) {
       });
       const asset = result?.assets?.[0];
       if (!asset || result.canceled) return;
+      let file;
       if (Platform.OS === 'web') {
         const response = await fetch(asset.uri);
+        if (!response.ok) throw new Error('Could not read the selected image.');
         const blob = await response.blob();
-        setExtensionReceiptFile({ file:blob, name:asset.fileName || 'extension-proof', type:blob.type || 'image/jpeg' });
-        setExtensionReceipt(asset.uri);
+        if (blob.size > MAX_RECEIPT_BYTES) return setExtensionError('The image must be 5 MB or smaller.');
+        if (!blob.size) return setExtensionError('Choose a non-empty image file.');
+        file = {
+          file: blob,
+          name: asset.fileName || `extension-proof-${Date.now()}`,
+          type: blob.type || asset.mimeType || 'application/octet-stream',
+        };
       } else {
-        setExtensionReceipt(asset.base64 ? `data:${receiptMimeType(asset)};base64,${asset.base64}` : asset.uri);
-        setExtensionReceiptFile(asset.uri);
+        if (asset.fileSize > MAX_RECEIPT_BYTES) {
+          return setExtensionError('The image must be 5 MB or smaller.');
+        }
+        let base64 = asset.base64;
+        let mimeType = receiptMimeType(asset);
+        if (isHeifReceipt(asset)) {
+          const rendered = await ImageManipulator.manipulate(asset.uri).renderAsync();
+          const converted = await rendered.saveAsync({
+            format: SaveFormat.JPEG,
+            compress: 0.92,
+            base64: true,
+          });
+          base64 = converted.base64;
+          mimeType = 'image/jpeg';
+        }
+        if (!base64) throw new Error('Could not read the selected image. Please choose another image.');
+        const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+        const base64Size = Math.floor(base64.length * 3 / 4) - padding;
+        if (base64Size > MAX_RECEIPT_BYTES) {
+          return setExtensionError('The image must be 5 MB or smaller.');
+        }
+        file = `data:${mimeType};base64,${base64}`;
       }
+      setExtensionReceiptFile(file);
+      setExtensionReceipt(asset.uri);
       setExtensionError('');
     } catch (x) { setExtensionError(x.message); }
   };
@@ -508,7 +564,7 @@ function Reservations({ mode = 'booking' }) {
     if (!extensionReceipt && !extensionReceiptFile) return setExtensionError('Upload an extension payment receipt.');
     setExtensionBusy(true); setExtensionError('');
     try {
-      await requestReservationExtension(extensionFor, extensionMinutes, extensionReceiptFile || extensionReceipt);
+      await requestReservationExtension(extensionFor, effectiveExtensionMinutes, extensionReceiptFile || extensionReceipt);
       setExtensionFor(null); setExtensionReceipt(''); setExtensionReceiptFile(null);
       toast('Extension submitted for Finance verification.');
       await refresh();
@@ -665,7 +721,7 @@ function Reservations({ mode = 'booking' }) {
                 const extensionPending = (db.reservationExtensions || []).some((extension) =>
                   extension.reservationId === r.id && extension.status === 'Pending');
                 const canExtend = payment?.status === 'Verified'
-                  && ['Confirmed','Active'].includes(r.status)
+                  && (['Confirmed','Active'].includes(r.status) || (r.status === 'Expired' && Number(r.stored) === 1))
                   && !extensionPending;
                 const canCancel = ['Pending','Confirmed','Active'].includes(r.status);
                 return (
@@ -827,20 +883,44 @@ function Reservations({ mode = 'booking' }) {
           </View>
         ) : null}
       </InfoModal>
-      <InfoModal visible={!!extensionFor} title="Extend reservation time" onClose={() => extensionBusy ? null : setExtensionFor(null)}>
-        <Text style={[s.cardSub, staticStyles.cabinetScannerText3]}>Select an additional duration. Finance must approve the payment before the expiration time changes.</Text>
-        <View style={{ flexDirection:'row', flexWrap:'wrap', gap:8, marginBottom:12 }}>
-          {[15,30,45,60,90,120].map((minutes) => (
-            <TouchableOpacity key={minutes} onPress={() => setExtensionMinutes(minutes)}
-              style={{ width:'30%', minHeight:44, alignItems:'center', justifyContent:'center', borderRadius:10, borderWidth:1,
-                borderColor:extensionMinutes === minutes ? c.gold : c.line, backgroundColor:extensionMinutes === minutes ? c.goldBg : c.card }}>
-              <Text style={{ color:extensionMinutes === minutes ? c.gold : c.text, fontWeight:'700' }}>{minutes < 60 ? `${minutes} min` : `${minutes/60} hour${minutes === 60 ? '' : 's'}`}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <Text style={s.cardTitle}>Additional duration: {extensionMinutes} minutes</Text>
-        <Text style={s.cardSub}>Additional fee: PHP {((extensionMinutes/15)*5).toFixed(2)}</Text>
+      <InfoModal visible={!!extensionFor} title={isLateRetrievalExtension ? 'Late retrieval extension' : 'Extend reservation time'} onClose={() => extensionBusy ? null : setExtensionFor(null)}>
+        <Text style={[s.cardSub, staticStyles.cabinetScannerText3]}>
+          {isLateRetrievalExtension
+            ? 'Your helmet is still in the locker after the 10-minute grace period. The additional payment is calculated from the time passed after the grace period. Finance must approve the payment before you can retrieve your helmet.'
+            : 'Select an additional duration. Finance must approve the payment before the expiration time changes.'}
+        </Text>
+        {isLateRetrievalExtension ? (
+          <View style={[staticStyles.riderPaymentAmountCard, { backgroundColor:c.soft, borderColor:c.line, marginBottom:12 }]}>
+            <View>
+              <Text style={dynamicStyles.riderPaymentLabel({ c })}>LATE DURATION</Text>
+              <Text style={dynamicStyles.riderPaymentAmount({ c })}>{extensionDurationLabel}</Text>
+              <Text style={s.muted}>Billed in 15-minute increments from time passed after the 10-minute grace period.</Text>
+            </View>
+            <Ionicons name="time-outline" size={23} color={c.gold} />
+          </View>
+        ) : (
+          <View style={{ flexDirection:'row', flexWrap:'wrap', gap:8, marginBottom:12 }}>
+            {[15,30,45,60,90,120].map((minutes) => (
+              <TouchableOpacity key={minutes} onPress={() => setExtensionMinutes(minutes)}
+                style={{ width:'30%', minHeight:44, alignItems:'center', justifyContent:'center', borderRadius:10, borderWidth:1,
+                  borderColor:extensionMinutes === minutes ? c.gold : c.line, backgroundColor:extensionMinutes === minutes ? c.goldBg : c.card }}>
+                <Text style={{ color:extensionMinutes === minutes ? c.gold : c.text, fontWeight:'700' }}>{minutes < 60 ? `${minutes} min` : `${minutes/60} hour${minutes === 60 ? '' : 's'}`}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+        <Text style={s.cardTitle}>Additional duration: {extensionDurationLabel}</Text>
+        <Text style={s.cardSub}>Additional fee: PHP {extensionFee.toFixed(2)}</Text>
         <Btn variant="outline" icon="image-outline" label={extensionReceipt ? 'Replace receipt image' : 'Upload receipt image'} onPress={pickExtensionReceipt} />
+        {extensionReceipt ? (
+          <View style={[staticStyles.riderPaymentReceiptPreview, { backgroundColor:c.soft, borderColor:c.line }]}>
+            <Image source={{ uri: extensionReceipt }} style={staticStyles.riderPaymentReceiptImage} />
+            <View style={staticStyles.riderPaymentReceiptCopy}>
+              <Text style={{ color:c.text, fontWeight:'700' }}>Receipt selected</Text>
+              <Text style={s.muted}>Ready to submit for Finance review</Text>
+            </View>
+          </View>
+        ) : null}
         {extensionError ? <Text style={[s.err, staticStyles.cabinetScannerView12]}>{extensionError}</Text> : null}
         <View style={staticStyles.riderReservationsView7}><Btn full label={extensionBusy ? 'Submitting…' : 'Submit extension payment'} onPress={extensionBusy ? undefined : submitExtension} /></View>
       </InfoModal>

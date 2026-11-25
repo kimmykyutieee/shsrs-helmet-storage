@@ -19,10 +19,11 @@ function SlotAvailability() {
         </Text>
         {!slots.length ? <Text style={s.empty}>No lockers are configured.</Text> : slots.map((slot) => {
           const reservations = (db.slotReservations || [])
-            .filter((item) => Number(item.slot) === Number(slot.slot) && item.date >= date)
-            .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-          const reservation = reservations.find((item) => item.date === date) || reservations[0];
-          const status = slot.blocked ? 'Maintenance' : reservation ? `Reserved${reservation.status ? ` · ${reservation.status}` : ''}` : 'Available';
+            .filter((item) => Number(item.slot) === Number(slot.slot) && (item.date >= date || Number(item.stored) === 1))
+            .sort((a, b) => (Number(b.stored) - Number(a.stored)) || (a.date + a.time).localeCompare(b.date + b.time));
+          const reservation = reservations.find((item) => Number(item.stored) === 1) || reservations.find((item) => item.date === date) || reservations[0];
+          const occupiedByStoredHelmet = Number(reservation?.stored) === 1;
+          const status = slot.blocked ? 'Maintenance' : occupiedByStoredHelmet ? 'Occupied · Helmet stored' : reservation ? `Reserved${reservation.status ? ` · ${reservation.status}` : ''}` : 'Available';
           const kind = slot.blocked ? 'bad' : reservation ? 'gold' : 'ok';
           return (
             <View key={slot.slot} style={dynamicStyles.slotAvailabilityView2({ c })}>
