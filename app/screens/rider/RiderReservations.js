@@ -14,6 +14,7 @@ import { Layout, SlotGrid, DateTimeFields, Btn, Tag, InfoModal, IconBox } from '
 import { staticStyles, dynamicStyles, riderExportStyles } from '../../components/rider.styles';
 
 const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
+const GCASH_QR = require('../../assets/gcash-qr.png');
 const RECEIPT_MIME_TYPES = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -73,6 +74,20 @@ function DetailLine({ label, value, icon, c }) {
         <Text style={dynamicStyles.riderDetailLabel({ c })}>{label}</Text>
         <Text style={dynamicStyles.riderDetailValue({ c })}>{value}</Text>
       </View>
+    </View>
+  );
+}
+
+function PaymentQrCard({ amount }) {
+  const { c, s } = useApp();
+  return (
+    <View style={[staticStyles.riderPaymentQrCard, { backgroundColor:c.soft, borderColor:c.line }]}>
+      <View style={staticStyles.riderPaymentQrHeader}>
+        <Text style={dynamicStyles.riderPaymentQrTitle({ c })}>Scan to pay with GCash</Text>
+        <Text style={dynamicStyles.riderPaymentQrAmount({ c })}>PHP {Number(amount).toFixed(2)}</Text>
+      </View>
+      <Image source={GCASH_QR} style={staticStyles.riderPaymentQrImage} resizeMode="contain" accessibilityLabel="GCash payment QR code" />
+      <Text style={[s.muted, staticStyles.riderPaymentQrHint]}>Pay the exact amount shown. Transfer fees may apply. Upload your payment receipt below.</Text>
     </View>
   );
 }
@@ -911,6 +926,7 @@ function Reservations({ mode = 'booking' }) {
         )}
         <Text style={s.cardTitle}>Additional duration: {extensionDurationLabel}</Text>
         <Text style={s.cardSub}>Additional fee: PHP {extensionFee.toFixed(2)}</Text>
+        <PaymentQrCard amount={extensionFee} />
         <Btn variant="outline" icon="image-outline" label={extensionReceipt ? 'Replace receipt image' : 'Upload receipt image'} onPress={pickExtensionReceipt} />
         {extensionReceipt ? (
           <View style={[staticStyles.riderPaymentReceiptPreview, { backgroundColor:c.soft, borderColor:c.line }]}>
@@ -931,6 +947,7 @@ function Reservations({ mode = 'booking' }) {
             <Ionicons name="receipt-outline" size={23} color={c.gold} />
           </View>
           <Text style={[s.muted, staticStyles.riderPaymentInstruction]}>Upload your payment receipt. Finance will verify it before your QR code is available.</Text>
+          <PaymentQrCard amount={payAmount} />
           <View style={staticStyles.riderPaymentReceiptSection}>
             <View style={staticStyles.riderPaymentReceiptHeading}>
               <Text style={s.cardTitle}>Payment receipt</Text>
