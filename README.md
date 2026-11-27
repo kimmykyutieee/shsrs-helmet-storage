@@ -12,7 +12,8 @@ Security users view the prototype cabinet's database-backed slot status and oper
 ## Features
 
 **Riders**
-- Scan a student ID QR containing a name, 10-digit student ID, and course/program before registering; log in with bcrypt-hashed passwords and JWT sessions
+- Scan a USTP student ID QR (10-digit ID) or faculty ID QR (7-digit ID) before registering; log in with bcrypt-hashed passwords and JWT sessions
+- Recover a forgotten password by receiving a one-time verification code at the account email and setting a new password in the app; the email must be accessible
 - Home with next reservation, free slots today and recent cabinet activity
 - Slots view for database-backed availability; Reservation form and My Reservations list
 - Reserve a slot by date and time (live availability, no double bookings)
@@ -42,7 +43,8 @@ Security users view the prototype cabinet's database-backed slot status and oper
 - Export reservations to CSV
 
 **Business rules (enforced by the server)**
-- Registration requires the scanned QR payload to contain a name, one 10-digit student ID, and a course/program; the student ID is unique
+- Registration accepts student IDs with 10 digits and faculty IDs with 7 digits; the scanned QR payload must include the cardholder name, unique ID, and course/program or faculty position/address
+- QR contents are parsed to prefill the account type and identity details; scanning does not verify enrollment or prove that an ID is authentic or belongs to the person scanning
 - The current QR payload contains no school or campus data, so scanning does **not** verify USTP enrollment or prove that the ID is authentic or belongs to the person scanning
 - 12 slots; one booking per slot per date
 - Bookings must be in the future; blocked slots cannot be booked
@@ -103,7 +105,7 @@ shsrs/
 3. Import `server/schema.sql` (creates the `shsrs` database and tables).
 4. *(Optional)* import `server/demo_data.sql` for sample users and reservations.
 
-For an existing SHSRS database, apply the migrations in order: `server/migrations/001_finance_payments.sql`, `server/migrations/002_payment_receipt_only.sql`, `server/migrations/003_student_registration.sql`, then `server/migrations/004_security_role.sql`. They add Finance/payment support, make the legacy payment-method column optional, add student ID/course columns with a unique student ID index, and add the Security role flag. Existing reservations remain unconfirmed until a receipt is submitted and approved.
+For an existing SHSRS database, apply the migrations in numeric order through `server/migrations/014_password_reset_email_attempts.sql`. Migrations 011–012 add account and session fields; migration 013 creates the password reset request table; migration 014 adds its verification-attempt limit.
 
 ### 2. Install the server and launcher
 ```bash
@@ -169,6 +171,14 @@ The API reads these environment variables (defaults suit a fresh XAMPP):
 | `DB_NAME`    | `shsrs`         | Database name               |
 | `PORT`       | `3000`          | API port                    |
 | `JWT_SECRET` | `change-this-secret` | **Set your own for real use** |
+| `SMTP_HOST`  | *(unset)*       | SMTP server host for password reset codes |
+| `SMTP_PORT`  | `587`           | SMTP server port             |
+| `SMTP_SECURE`| `false`         | Set `true` for implicit TLS (commonly port 465) |
+| `SMTP_USER`  | *(unset)*       | SMTP username                |
+| `SMTP_PASS`  | *(unset)*       | SMTP password or provider app password |
+| `SMTP_FROM`  | `SMTP_USER`     | Sender address displayed in reset emails |
+
+Forgot-password email delivery requires SMTP settings in `server/.env` and a real inbox on the rider's account. For example, Gmail SMTP uses `smtp.gmail.com`, port `465`, `SMTP_SECURE=true`, and a Google app password (not the account's normal password). Restart the API after changing `.env`. Never commit SMTP credentials.
 
 Windows example: `set DB_PASS=mypassword` before `npm start`.
 
@@ -183,6 +193,7 @@ Windows example: `set DB_PASS=mypassword` before `npm start`.
 | `reservations` | Bookings; unique per (`slot_no`, `res_date`); status and `stored` flag |
 | `payments`     | Student-submitted receipt image, status and processing history |
 | `access_log`   | Every Stored / Retrieved event                                 |
+| `password_reset_requests` | Short-lived password reset code hashes and attempt limits |
 
 Deleting a user cascades to their reservations and related payments; log entries are kept.
 
@@ -190,13 +201,15 @@ Deleting a user cascades to their reservations and related payments; log entries
 
 ## API reference
 
-All routes except `register`, `login` and `health` need `Authorization: Bearer <token>`.
+All routes except `register`, `login`, `health`, and the password-reset email/code routes need `Authorization: Bearer <token>`.
 
 | Method | Route                              | Description                          |
 |--------|------------------------------------|--------------------------------------|
 | GET    | `/api/health`                      | Checks API + database + tables       |
 | POST   | `/api/register`                    | Create account → token               |
 | POST   | `/api/login`                       | Log in → token                       |
+| POST   | `/api/password-reset-requests`     | Send a verification code to the account email |
+| PUT    | `/api/password-reset-requests/password` | Verify code and set a new password |
 | GET    | `/api/data`                        | Everything the app needs             |
 | POST   | `/api/reservations`                | Book a slot                          |
 | POST   | `/api/reservations/:id/payments`   | Submit payment and receipt           |

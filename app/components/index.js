@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Pressable, ScrollView, StyleSheet, Modal, Image, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../shared/hooks/useApp';
@@ -88,12 +88,12 @@ function IconBox({ icon, tone = 'primary', size = 46 }) {
   return <View style={dynamicStyles.indexView12({ bg, size })}><Ionicons name={icon} size={size * 0.46} color={fg} /></View>;
 }
 
-function InfoModal({ visible, title, onClose, children }) {
+function InfoModal({ visible, title, onClose, children, contentStyle }) {
   const { c } = useApp();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={staticStyles.indexView13}>
-        <View style={dynamicStyles.indexView14({ c, lift })}>
+        <View style={[dynamicStyles.indexView14({ c, lift }), contentStyle]}>
           <View style={staticStyles.indexView15}>
             <Text style={dynamicStyles.indexText16({ c })}>{title}</Text>
             <TouchableOpacity onPress={onClose}><Ionicons name="close" size={22} color={c.muted} /></TouchableOpacity>
@@ -108,19 +108,69 @@ function InfoModal({ visible, title, onClose, children }) {
 function DateTimeFields({ date, time, onDate, onTime, dateOnly = false }) {
   const { s, c } = useApp();
   const [show, setShow] = useState(null);
+  const [dateDraft, setDateDraft] = useState(date || '');
   const ios = Platform.OS === 'ios';
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+  const openDatePicker = () => {
+    const initialDate = date || today();
+    setDateDraft(initialDate);
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: dt(initialDate, '00:00'),
+        mode: 'date',
+        display: 'calendar',
+        minimumDate: midnight,
+        positiveButton: { label: 'OK' },
+        negativeButton: { label: 'Cancel' },
+        onChange: (event, selectedDate) => {
+          if (event.type === 'set' && selectedDate) onDate(ymd(selectedDate));
+        },
+      });
+      return;
+    }
+    setShow('d');
+  };
+  const confirmDate = () => {
+    if (!dateDraft) return;
+    onDate(dateDraft);
+    setShow(null);
+  };
+  const cancelDate = () => {
+    setDateDraft(date || '');
+    setShow(null);
+  };
   if (WEB) {
     const st = dynamicStyles.indexStyle62({ c });
     return (
-      <View style={staticStyles.indexView17}>
-        {React.createElement('input', { type: 'date', value: date, min: today(), onChange: (e) => onDate(e.target.value), style: st })}
-        {        dateOnly ? null : React.createElement('input', { type: 'time', value: time, onChange: (e) => onTime(e.target.value), style: st })}
+      <View>
+        <View style={staticStyles.indexView17}>
+          {React.createElement('input', {
+            type: 'date',
+            value: dateDraft || date,
+            min: today(),
+            onClick: (event) => {
+              if (typeof event.currentTarget.showPicker === 'function') event.currentTarget.showPicker();
+              setShow('d');
+            },
+            onChange: (event) => setDateDraft(event.target.value),
+            style: st,
+          })}
+          {dateOnly ? null : React.createElement('input', { type: 'time', value: time, onChange: (e) => onTime(e.target.value), style: st })}
+        </View>
+        {show === 'd' ? (
+          <View style={{ flexDirection:'row', justifyContent:'flex-end', marginTop:8 }}>
+            <Btn small variant="outline" label="Cancel" onPress={cancelDate} />
+            <Btn small label="OK" onPress={confirmDate} style={{ marginLeft:8 }} />
+          </View>
+        ) : null}
       </View>
     );
   }
-  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
   const renderBox = (k, text, ph, icon) => (
-    <TouchableOpacity style={[s.input, staticStyles.indexTouchableOpacity18]} onPress={() => setShow(show === k ? null : k)}>
+    <TouchableOpacity style={[s.input, staticStyles.indexTouchableOpacity18]} onPress={() => {
+      if (k === 'd') openDatePicker();
+      else setShow(show === k ? null : k);
+    }}>
       <Ionicons name={icon} size={17} color={c.muted} />
       <Text style={dynamicStyles.indexText19({ c, text })}>{text || ph}</Text>
     </TouchableOpacity>
@@ -131,18 +181,34 @@ function DateTimeFields({ date, time, onDate, onTime, dateOnly = false }) {
         {renderBox('d', date ? fd(date) : '', 'Select date', 'calendar-outline')}
         {!dateOnly ? renderBox('t', time ? ft(time) : '', 'Select time', 'time-outline') : null}
       </View>
-      {show === 'd' && (
-        <View style={staticStyles.indexDatePickerContainer}>
-          <DateTimePicker value={date ? dt(date, '00:00') : new Date()} mode="date" minimumDate={midnight}
-            display={ios ? 'inline' : 'default'} themeVariant="light"
-            onChange={(e, v) => { if (!ios) setShow(null); if (e.type !== 'dismissed' && v) onDate(ymd(v)); }} />
-        </View>
-      )}
       {!dateOnly && show === 't' && (
         <DateTimePicker value={time ? dt(today(), time) : new Date()} mode="time"
           display={ios ? 'spinner' : 'default'} themeVariant="light"
           onChange={(e, v) => { if (!ios) setShow(null); if (e.type !== 'dismissed' && v) onTime(hm(v)); }} />
       )}
+      <InfoModal
+        visible={show === 'd'}
+        title="Choose date"
+        onClose={cancelDate}
+        contentStyle={ios ? { padding:12, maxWidth:380 } : undefined}
+      >
+        <View style={[staticStyles.indexDatePickerContainer, ios && { width:'100%', padding:0, marginTop:4, alignItems:'center' }]}>
+          <DateTimePicker value={dateDraft ? dt(dateDraft, '00:00') : new Date()} mode="date" minimumDate={midnight}
+            display={ios ? 'inline' : 'default'} themeVariant="light"
+            style={ios ? { width:'100%', maxWidth:320 } : undefined}
+            onChange={(event, selectedDate) => {
+              if (event.type === 'dismissed') {
+                cancelDate();
+                return;
+              }
+              if (selectedDate) setDateDraft(ymd(selectedDate));
+            }} />
+        </View>
+        <View style={{ flexDirection:'row', justifyContent:'flex-end', marginTop:8 }}>
+          <Btn small variant="outline" label="Cancel" onPress={cancelDate} />
+          <Btn small label="OK" onPress={confirmDate} style={{ marginLeft:8 }} />
+        </View>
+      </InfoModal>
     </View>
   );
 }

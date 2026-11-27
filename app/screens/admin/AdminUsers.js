@@ -78,11 +78,16 @@ function AdminUsers() {
                 <Text style={dynamicStyles.adminUsersText4({ c })}>{user.name}</Text>
                 <Text style={s.muted}>{user.email}</Text>
               </View>
-              <Tag kind={user.admin || user.finance || user.security ? 'gold' : 'mute'} text={userRole(user)} />
+              <Tag
+                kind={user.admin || user.finance || user.security ? 'gold' : 'mute'}
+                text={!user.admin && !user.finance && !user.security && user.memberType === 'Faculty' ? 'Faculty Rider' : userRole(user)}
+              />
             </View>
             <View style={staticStyles.adminUsersActions}>
               <Btn small variant="outline" label="Edit" onPress={busyUser === user.id ? undefined : () => openEdit(user)} />
-              {!user.admin && !user.finance && !user.security ? <Btn small variant="outline" icon="trash-outline" label="Delete" onPress={busyUser === user.id ? undefined : () => removeUser(user)} /> : null}
+              {!user.admin && !user.finance && !user.security ? (
+                <Btn small variant="outline" icon="trash-outline" label="Delete" onPress={busyUser === user.id ? undefined : () => removeUser(user)} />
+              ) : null}
             </View>
           </View>
         )) : <View style={[s.card, staticStyles.adminEmptyState]}><IconBox icon="people-outline" tone="gold" size={48} /><Text style={s.empty}>No user accounts found.</Text></View>}

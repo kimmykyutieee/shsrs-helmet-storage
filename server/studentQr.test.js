@@ -1,46 +1,76 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseStudentQr, verifyStudentQrSubmission } = require('./studentQr');
+const { parseIdentityQr, verifyIdentityQrSubmission } = require('./studentQr');
 
-test('parses name, 10-digit student ID, and course from the observed payload', () => {
-  assert.deepEqual(parseStudentQr('KHRISTAL A. JAWAY 2024301392 BSIT'), {
-    student: { name: 'KHRISTAL A. JAWAY', studentId: '2024301392', course: 'BSIT' },
+test('parses student IDs and course details from the QR payload', () => {
+  assert.deepEqual(parseIdentityQr('STUDENT RIDER 2024301392 BSIT'), {
+    identity: { name: 'STUDENT RIDER', memberId: '2024301392', memberType: 'Student', affiliation: 'BSIT' },
   });
 });
 
-test('preserves multiword names and programs while normalizing whitespace', () => {
-  assert.deepEqual(parseStudentQr('  KHRISTAL   A. JAWAY  2024301392  BS Information Technology  '), {
-    student: { name: 'KHRISTAL A. JAWAY', studentId: '2024301392', course: 'BS Information Technology' },
+test('parses seven-digit faculty IDs and designation details', () => {
+  assert.deepEqual(parseIdentityQr('FACULTY MEMBER 1234567 Instructor I College of Science'), {
+    identity: {
+      name: 'FACULTY MEMBER',
+      memberId: '1234567',
+      memberType: 'Faculty',
+      affiliation: 'Instructor I College of Science',
+    },
   });
 });
 
-test('rejects empty or unsupported payloads and multiple student IDs', () => {
-  assert.deepEqual(parseStudentQr(''), { error: 'invalid' });
-  assert.deepEqual(parseStudentQr('not a student ID'), { error: 'studentId' });
-  assert.deepEqual(parseStudentQr('Name 1234567890 BSIT 2024301392'), { error: 'invalid' });
+test('preserves multiword names and affiliations while normalizing whitespace', () => {
+  assert.deepEqual(parseIdentityQr('  STUDENT   RIDER  2024301392  BS Information Technology  '), {
+    identity: { name: 'STUDENT RIDER', memberId: '2024301392', memberType: 'Student', affiliation: 'BS Information Technology' },
+  });
 });
 
-test('rejects missing name, missing course, and IDs that are not ten digits', () => {
-  assert.deepEqual(parseStudentQr('2024301392 BSIT'), { error: 'name' });
-  assert.deepEqual(parseStudentQr('Student Name 2024301392'), { error: 'course' });
-  assert.deepEqual(parseStudentQr('Student Name 202430139 BSIT'), { error: 'studentId' });
+test('rejects empty or unsupported payloads and multiple supported IDs', () => {
+  assert.deepEqual(parseIdentityQr(''), { error: 'invalid' });
+  assert.deepEqual(parseIdentityQr('not a USTP ID'), { error: 'memberId' });
+  assert.deepEqual(parseIdentityQr('NAME 123456789 BSIT'), { error: 'memberId' });
+  assert.deepEqual(parseIdentityQr('NAME 1234567 BSIT 2024301392'), { error: 'invalid' });
 });
 
-test('backend registration validation requires the raw QR payload', () => {
-  assert.deepEqual(verifyStudentQrSubmission({}), { error: 'invalid' });
+test('rejects missing name and missing course or faculty details', () => {
+  assert.deepEqual(parseIdentityQr('2024301392 BSIT'), { error: 'name' });
+  assert.deepEqual(parseIdentityQr('STUDENT RIDER 2024301392'), { error: 'affiliation' });
+  assert.deepEqual(parseIdentityQr('FACULTY MEMBER 1234567'), { error: 'affiliation' });
 });
 
-test('backend rejects student details that differ from the raw QR payload', () => {
+test('registration validation requires the raw QR payload', () => {
+  assert.deepEqual(verifyIdentityQrSubmission({}), { error: 'invalid' });
+});
+
+test('registration rejects details or account type that differ from the scanned QR', () => {
   const base = {
-    studentQr: 'KHRISTAL A. JAWAY 2024301392 BSIT',
-    name: 'KHRISTAL A. JAWAY',
+    identityQr: 'FACULTY MEMBER 1234567 Instructor I College of Science',
+    name: 'FACULTY MEMBER',
+    memberId: '1234567',
+    memberType: 'Faculty',
+    affiliation: 'Instructor I College of Science',
+  };
+  assert.deepEqual(verifyIdentityQrSubmission(base), {
+    identity: {
+      name: 'FACULTY MEMBER',
+      memberId: '1234567',
+      memberType: 'Faculty',
+      affiliation: 'Instructor I College of Science',
+    },
+  });
+  assert.deepEqual(verifyIdentityQrSubmission({ ...base, memberId: '1234568' }), { error: 'mismatch' });
+  assert.deepEqual(verifyIdentityQrSubmission({ ...base, memberType: 'Student' }), { error: 'mismatch' });
+  assert.deepEqual(verifyIdentityQrSubmission({ ...base, name: 'ANOTHER MEMBER' }), { error: 'mismatch' });
+  assert.deepEqual(verifyIdentityQrSubmission({ ...base, affiliation: 'Another department' }), { error: 'mismatch' });
+});
+
+test('accepts legacy student registration fields during app rollout', () => {
+  assert.deepEqual(verifyIdentityQrSubmission({
+    studentQr: 'STUDENT RIDER 2024301392 BSIT',
+    name: 'STUDENT RIDER',
     studentId: '2024301392',
     course: 'BSIT',
-  };
-  assert.deepEqual(verifyStudentQrSubmission(base), {
-    student: { name: 'KHRISTAL A. JAWAY', studentId: '2024301392', course: 'BSIT' },
+  }), {
+    identity: { name: 'STUDENT RIDER', memberId: '2024301392', memberType: 'Student', affiliation: 'BSIT' },
   });
-  assert.deepEqual(verifyStudentQrSubmission({ ...base, studentId: '2024301393' }), { error: 'mismatch' });
-  assert.deepEqual(verifyStudentQrSubmission({ ...base, name: 'Another Student' }), { error: 'mismatch' });
-  assert.deepEqual(verifyStudentQrSubmission({ ...base, course: 'BSCS' }), { error: 'mismatch' });
 });

@@ -13,11 +13,12 @@ import { api, getToken, setToken } from './services/api';
 import { registerPushNotifications, unregisterPushNotifications, addPushNotificationListeners } from './services/pushNotificationService';
 import { Ctx } from './shared/hooks/useApp';
 import { mk } from './components/theme.styles';
-import { Shield, InfoModal } from './components';
+import { Shield, InfoModal, Btn } from './components';
 import { staticStyles, dynamicStyles } from './components/app.styles';
 import RootNavigator from './navigation/RootNavigator';
 
 const EMPTY = { me: null, users: [], res: [], slotReservations: [], slots: [], blocked: [], log: [], payments: [], notifications: [] };
+const RIDER_POLICY_KEY = 'shsrs_rider_policy_ack_v1';
 const homeRoute = (user) => user?.admin ? 'dashboard' : user?.finance ? 'financePending' : user?.security ? 'securityScan' : 'dashboard';
 
 function Root() {
@@ -36,6 +37,7 @@ function Root() {
   const [route, setRoute] = useState({ n: 'login', arg: null });
   const [msg, setMsg] = useState('');
   const [info, setInfo] = useState(null);
+  const [riderPolicyVisible, setRiderPolicyVisible] = useState(false);
   const [netErr, setNetErr] = useState('');
   const timer = useRef(null);
   const timedOut = /timed?\s*out|timeout/i.test(netErr);
@@ -91,6 +93,24 @@ function Root() {
     });
   }, [me?.id, me?.admin, me?.finance, me?.security]);
 
+  useEffect(() => {
+    let active = true;
+    if (!me || me.admin || me.finance || me.security) {
+      setRiderPolicyVisible(false);
+      return () => { active = false; };
+    }
+
+    AsyncStorage.getItem(`${RIDER_POLICY_KEY}_${me.id}`)
+      .then((acknowledged) => {
+        if (active) setRiderPolicyVisible(acknowledged !== 'true');
+      })
+      .catch((error) => {
+        console.error('Unable to check rider policy acknowledgement', error);
+        if (active) setRiderPolicyVisible(true);
+      });
+    return () => { active = false; };
+  }, [me?.id, me?.admin, me?.finance, me?.security]);
+
   if (netErr) {
     return (
       <View style={dynamicStyles.appView1({ NAVY })}>
@@ -119,6 +139,16 @@ function Root() {
   const nav = (n, arg = null) => setRoute({ n: n === 'home' ? 'login' : n, arg });
   navRef.current = nav;
   const toast = (m) => { setMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setMsg(''), 2800); };
+  const acknowledgeRiderPolicy = async () => {
+    if (!me?.id) return;
+    try {
+      await AsyncStorage.setItem(`${RIDER_POLICY_KEY}_${me.id}`, 'true');
+      setRiderPolicyVisible(false);
+    } catch (error) {
+      console.error('Unable to save rider policy acknowledgement', error);
+      toast('Unable to save your acknowledgment. Please try again.');
+    }
+  };
   const signIn = async (tok) => {
     setToken(tok);
     await AsyncStorage.setItem(TOKEN_KEY, tok);
@@ -155,7 +185,7 @@ function Root() {
 
   const ctx = { db, refresh, signIn, nav, toast, me, c, s, mine, logout, toggleTheme, setInfo, wide, width };
   const manual = [
-    ['1', 'Scan ID and register', 'Scan a student ID QR containing a name, 10-digit student ID and course/program, then enter your account details. The payload does not verify school, campus or ID authenticity.'],
+    ['1', 'Scan ID and register', 'Scan a USTP student or faculty ID QR, then enter your account details. Student IDs have 10 digits; faculty IDs have 7 digits. The payload does not verify enrollment or ID authenticity.'],
     ['2', 'Reserve and pay', 'Choose a locker, date and time, then submit the PHP 25.00 payment method and receipt image.'],
     ['3', 'Wait for verification', 'Finance reviews your payment. Your reservation QR code is released after verification.'],
     ['4', 'Security scan', 'Security staff verify the rider QR code with the Camera Scanner before the helmet is stored or retrieved.'],
@@ -180,6 +210,12 @@ function Root() {
           </View>
         ))}
         <Text style={[s.muted, staticStyles.appText17]}>Open the Access Guide after logging in for the full step-by-step walkthrough.</Text>
+      </InfoModal>
+      <InfoModal visible={riderPolicyVisible} title="Rider Policy" onClose={acknowledgeRiderPolicy}>
+        <Text style={s.muted}>Your reservation includes a 10-minute pickup grace period. After that, the late fee is ₱5 per 15 minutes (minimum ₱5). Paid cancellations receive a 50% refund.</Text>
+        <View style={{ marginTop: 16 }}>
+          <Btn full label="I Understand" onPress={acknowledgeRiderPolicy} />
+        </View>
       </InfoModal>
       {msg ? (
         <View pointerEvents="none" style={dynamicStyles.appView18({ wide })}>

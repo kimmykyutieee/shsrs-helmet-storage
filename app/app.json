@@ -10,12 +10,17 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.helmate.shsrs",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -33,7 +38,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow HelMate to access your camera to scan student ID QR codes.",
+          "cameraPermission": "Allow HelMate to access your camera to scan USTP student or faculty ID QR codes.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
@@ -49,6 +54,12 @@
       "@react-native-community/datetimepicker",
       "expo-font",
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "23b87122-c14d-4abf-9e48-6e3ff9b8bfb8"
+      }
+    },
+    "owner": "jvhonnes-team"
   }
 }

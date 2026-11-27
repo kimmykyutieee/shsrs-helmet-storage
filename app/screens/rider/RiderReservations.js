@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Image, Platform, ScrollView, TouchableOpacity } from 'react-native';
+import { AppState, View, Text, TextInput, Image, Platform, ScrollView, TouchableOpacity } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../../shared/hooks/useApp';
 import { createReservation, cancelReservation, requestReservationExtension } from '../../services/reservationService';
 import { submitPayment } from '../../services/paymentService';
-import { dt, fd, ft, isPast, esc } from '../../shared/utils/date';
+import { dt, fd, ft, durationLabel, isPast, esc } from '../../shared/utils/date';
 import { sharePdf, confirmBox } from '../../shared/utils/actions';
 import { PAYMENT_CURRENCY } from '../../shared/constants/config';
 import { GOLD } from '../../shared/constants/theme';
@@ -57,9 +57,7 @@ const apiTime = (time) => {
   return `${String(Math.floor(minutes / 60)).padStart(2,'0')}:${String(minutes % 60).padStart(2,'0')}`;
 };
 const displayTime = (time) => `${String(time.hour.hour).padStart(2,'0')}:${String(time.minute).padStart(2,'0')} ${time.period}`;
-const displayDuration = ({ hours, minutes }) => hours === 0
-  ? `${minutes} minutes`
-  : `${hours} ${hours === 1 ? 'hour' : 'hours'}${minutes ? ` ${minutes} minutes` : ''}`;
+const displayDuration = ({ hours, minutes }) => durationLabel(hours * 60 + minutes);
 const clockTime = (minutes) => {
   const hour = Math.floor(minutes / 60) % 24;
   const minute = minutes % 60;
@@ -221,10 +219,7 @@ function DurationSelector({ value, onChange }) {
     onChange(next);
     setValidationMessage('');
   };
-  const summary = [
-    value.hours ? `${value.hours} ${value.hours === 1 ? 'hour' : 'hours'}` : '',
-    value.minutes ? `${value.minutes} minutes` : '',
-  ].filter(Boolean).join(' and ') || 'Choose a duration';
+  const summary = displayDuration(value);
   const invalidDuration = value.hours * 60 + value.minutes < 15;
 
   return (
@@ -284,12 +279,15 @@ function DurationSelector({ value, onChange }) {
 
 function Reservations({ mode = 'booking' }) {
   const { db, refresh, me, mine, nav, toast, s, c, wide } = useApp();
+  const [clockNow, setClockNow] = useState(() => new Date());
   const [sel, setSel] = useState(0);
   const [rd, setRd] = useState('');
   const [startTime, setStartTime] = useState({ hour:TIME_HOURS.find((option) => option.id === 'morning-8'), minute:0, period:'AM' });
+  const [startTimeChosen, setStartTimeChosen] = useState(false);
   const [startTimeDraft, setStartTimeDraft] = useState(startTime);
   const [startTimeModal, setStartTimeModal] = useState(false);
   const [duration, setDuration] = useState({ hours:1, minutes:0 });
+  const [durationChosen, setDurationChosen] = useState(false);
   const [durationDraft, setDurationDraft] = useState(duration);
   const [durationModal, setDurationModal] = useState(false);
   const [wholeDay, setWholeDay] = useState(false);
@@ -310,6 +308,12 @@ function Reservations({ mode = 'booking' }) {
   const [extensionError, setExtensionError] = useState('');
   const [extensionBusy, setExtensionBusy] = useState(false);
   const [extensionTick, setExtensionTick] = useState(0);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setClockNow(new Date());
+    });
+    return () => subscription.remove();
+  }, []);
   const extensionReservation = extensionFor ? (db.res || []).find((r) => r.id === extensionFor) : null;
   const isLateRetrievalExtension = extensionReservation?.status === 'Expired' && Number(extensionReservation?.stored) === 1;
   useEffect(() => {
@@ -325,15 +329,7 @@ function Reservations({ mode = 'booking' }) {
   })();
   const effectiveExtensionMinutes = isLateRetrievalExtension ? lateExtensionMinutes : extensionMinutes;
   const extensionFee = (effectiveExtensionMinutes / 15) * 5;
-  const formatExtensionDuration = (mins) => {
-    const total = Math.max(0, Number(mins) || 0);
-    const h = Math.floor(total / 60);
-    const m = total % 60;
-    if (h <= 0) return `${m} minute${m === 1 ? '' : 's'}`;
-    if (m <= 0) return `${h} hour${h === 1 ? '' : 's'}`;
-    return `${h} hour${h === 1 ? '' : 's'} ${m} minute${m === 1 ? '' : 's'}`;
-  };
-  const extensionDurationLabel = formatExtensionDuration(effectiveExtensionMinutes);
+  const extensionDurationLabel = durationLabel(effectiveExtensionMinutes);
 
   const paymentFor = (id) => (db.payments || []).filter((payment) => payment.reservationId === id).sort((a, b) => b.id - a.id)[0];
 
@@ -363,16 +359,30 @@ function Reservations({ mode = 'booking' }) {
     ['Locker', eff ? `Locker ${eff}` : 'Not selected'],
     ['Date', rd ? fd(rd) : 'Not selected'],
     ['Starting time', displayTime(startTime)],
-    ['Duration', wholeDay ? `Whole Day (${Math.max(0,1260-startMinutes)} minutes)` : `${displayDuration(duration)} (${durationMinutes} minutes)`],
+    ['Duration', wholeDay ? `Whole Day (${durationLabel(Math.max(0,1260-startMinutes))})` : displayDuration(duration)],
     ['Ending time', endTimeFor()],
   ];
+  const showReservationSummary = Boolean(eff && rd && startTimeChosen && (durationChosen || wholeDay));
   const myReservations = mine().slice().sort((a, b) => Number(b.id) - Number(a.id));
+  const nextReservationStart = myReservations
+    .filter((reservation) => reservation.status === 'Confirmed')
+    .map((reservation) => dt(reservation.date, reservation.time).getTime())
+    .filter((timestamp) => timestamp > clockNow.getTime())
+    .sort((a, b) => a - b)[0];
+  useEffect(() => {
+    if (nextReservationStart == null) return undefined;
+    const timeout = setTimeout(
+      () => setClockNow(new Date()),
+      Math.max(0, nextReservationStart - Date.now()),
+    );
+    return () => clearTimeout(timeout);
+  }, [nextReservationStart, clockNow]);
   const statusFor = (reservation, payment) => {
     if (reservation.status === 'Cancelled' || reservation.status === 'Canceled') return 'Cancelled';
     if (reservation.status === 'Expired') return 'Expired';
     if (reservation.status === 'Active') return 'Active';
     if (reservation.status === 'Used') return 'Completed';
-    if (reservation.status === 'Confirmed') return dt(reservation.date, reservation.time) > new Date() ? 'Upcoming' : 'Confirmed';
+    if (reservation.status === 'Confirmed') return dt(reservation.date, reservation.time) > clockNow ? 'Upcoming' : 'Confirmed';
     if (payment?.status === 'Pending') return 'Pending Verification';
     return 'Pending Payment';
   };
@@ -423,6 +433,7 @@ function Reservations({ mode = 'booking' }) {
       return;
     }
     setStartTime(startTimeDraft);
+    setStartTimeChosen(true);
     setStartTimeModal(false);
     setEr('');
   };
@@ -433,6 +444,7 @@ function Reservations({ mode = 'booking' }) {
   const confirmDuration = () => {
     if (durationDraft.hours * 60 + durationDraft.minutes < 15) return;
     setDuration(durationDraft);
+    setDurationChosen(true);
     setWholeDay(false);
     setDurationModal(false);
     setEr('');
@@ -441,6 +453,8 @@ function Reservations({ mode = 'booking' }) {
   const book = async () => {
     if (!eff) return setEr('Please select a locker.');
     if (!rd) return setEr('Please choose a date.');
+    if (!startTimeChosen) return setEr('Please choose a starting time.');
+    if (!durationChosen && !wholeDay) return setEr('Please choose a duration or select Whole Day.');
     if (timeError) return setEr(timeError);
     if (dt(rd, parsedStart) < new Date()) return setEr('Please choose a future date and time.');
     try {
@@ -452,6 +466,7 @@ function Reservations({ mode = 'booking' }) {
       await refresh();
       toast(`Locker ${eff} reserved for ${fd(rd)}.`);
       setSel(0); setRd(''); setEr('');
+      setStartTimeChosen(false); setDurationChosen(false); setWholeDay(false);
       setPayFor(r.id); setReceipt(''); setReceiptFile(null); setPaymentError('');
     } catch (x) { setEr(x.message); refresh().catch(() => {}); }
   };
@@ -618,8 +633,9 @@ function Reservations({ mode = 'booking' }) {
                   onPress={openStartTimeSelector}
                   style={[s.input, { minHeight:48, flexDirection:'row', alignItems:'center', justifyContent:'space-between' }]}
                 >
-                  <Text style={s.muted}>Choose Starting Time</Text>
-                  <Text style={dynamicStyles.riderReservationsText18({ c })}>{displayTime(startTime)}</Text>
+                  <Text style={startTimeChosen ? dynamicStyles.riderReservationsText18({ c }) : s.muted}>
+                    {startTimeChosen ? displayTime(startTime) : 'Choose Starting Time'}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
@@ -630,8 +646,9 @@ function Reservations({ mode = 'booking' }) {
                   onPress={openDurationSelector}
                   style={[s.input, { minHeight:48, flexDirection:'row', alignItems:'center', justifyContent:'space-between' }]}
                 >
-                  <Text style={s.muted}>Choose Duration</Text>
-                  <Text style={dynamicStyles.riderReservationsText18({ c })}>{wholeDay ? 'Whole Day' : displayDuration(duration)}</Text>
+                  <Text style={durationChosen || wholeDay ? dynamicStyles.riderReservationsText18({ c }) : s.muted}>
+                    {wholeDay ? 'Whole Day' : durationChosen ? displayDuration(duration) : 'Choose Duration'}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
@@ -641,7 +658,7 @@ function Reservations({ mode = 'booking' }) {
                   onPress={() => { setWholeDay(!wholeDay); setEr(''); }} />
               </View>
             </View>
-            <View style={[s.card, staticStyles.riderReservationsReviewCard, { marginTop:16, borderColor:c.line }]}>
+            {showReservationSummary ? <View style={[s.card, staticStyles.riderReservationsReviewCard, { marginTop:16, borderColor:c.line }]}>
               <View style={staticStyles.riderReservationsReviewHeader}>
                 <View>
                   <Text style={dynamicStyles.riderReservationsReviewEyebrow({ c })}>RESERVATION SUMMARY</Text>
@@ -662,7 +679,7 @@ function Reservations({ mode = 'booking' }) {
                 <Text style={[s.muted, staticStyles.riderReservationsReviewTotalLabel]}>Total price</Text>
                 <Text style={[staticStyles.riderReservationsReviewAmount, { color:c.text }]}>₱{totalPrice.toFixed(2)}</Text>
               </View>
-            </View>
+            </View> : null}
             {timeError ? <View style={dynamicStyles.riderReservationsView5({ c })}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={dynamicStyles.riderReservationsText6({ c })}>{timeError}</Text></View> : null}
             {er ? <View style={dynamicStyles.riderReservationsView5({ c })}><Ionicons name="alert-circle-outline" size={18} color={c.bad} /><Text style={dynamicStyles.riderReservationsText6({ c })}>{er}</Text></View> : null}
             <View style={staticStyles.riderReservationsView7}><Btn full icon="checkmark-circle-outline" label="Confirm booking" onPress={book} /></View>
@@ -885,7 +902,7 @@ function Reservations({ mode = 'booking' }) {
               {selectedReservation.date ? <DetailLine c={c} icon="calendar-outline" label="Date" value={fd(selectedReservation.date)} /> : null}
               {selectedReservation.time ? <DetailLine c={c} icon="time-outline" label="Starting time" value={ft(selectedReservation.time)} /> : null}
               {selectedReservation.endTime ? <DetailLine c={c} icon="time-outline" label="Ending time" value={ft(selectedReservation.endTime)} /> : null}
-              {selectedReservation.durationMinutes != null ? <DetailLine c={c} icon="hourglass-outline" label="Duration" value={selectedReservation.wholeDay ? 'Whole Day' : `${selectedReservation.durationMinutes} minutes`} /> : null}
+              {selectedReservation.durationMinutes != null ? <DetailLine c={c} icon="hourglass-outline" label="Duration" value={`${selectedReservation.wholeDay ? 'Whole Day · ' : ''}${durationLabel(selectedReservation.durationMinutes)}`} /> : null}
             </View>
             <View style={[staticStyles.riderDetailSection, { backgroundColor:c.card, borderColor:c.line }]}>
               <Text style={dynamicStyles.riderDetailSectionTitle({ c })}>Payment and access</Text>

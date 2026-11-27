@@ -4,7 +4,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../../shared/hooks/useApp';
 import { scanCabinet } from '../../services/cabinetService';
-import { today, isPast } from '../../shared/utils/date';
+import { today, fd, ft, isPast } from '../../shared/utils/date';
 import { GOLD } from '../../shared/constants/theme';
 import { Layout, Btn, LogList } from '../../components';
 import { staticStyles, dynamicStyles } from '../../components/rider.styles';
@@ -103,7 +103,7 @@ function Scan() {
                     <Text style={securityDynamicStyles.securityScannerStatusTitle({ c, res })}>{securityStatus}</Text>
                     {res.reservation ? (
                       <Text style={s.cardSub}>
-                        Reservation #{res.reservation.id} · Locker {res.reservation.slot} · {res.reservation.date} · {res.reservation.time}{res.reservation.endTime ? `–${res.reservation.endTime}` : ''}
+                        Reservation #{res.reservation.id} · Locker {res.reservation.slot} · {fd(res.reservation.date)} · {ft(res.reservation.time)}{res.reservation.endTime ? `–${ft(res.reservation.endTime)}` : ''}
                       </Text>
                     ) : null}
                     {res.action ? <Text style={s.cardSub}>Action: {res.action}</Text> : null}

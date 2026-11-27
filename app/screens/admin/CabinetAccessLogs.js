@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../../shared/hooks/useApp';
 import { getPaymentHistory, getRefunds } from '../../services/paymentService';
 import { PAYMENT_STATUS_LABELS } from '../../shared/constants/config';
-import { fd, ft } from '../../shared/utils/date';
+import { fd, ft, durationLabel } from '../../shared/utils/date';
 import { Layout, LogList, Tag, Btn, InfoModal } from '../../components';
 import { staticStyles, dynamicStyles } from '../../components/admin.styles';
 
@@ -179,7 +179,7 @@ function CabinetAccessLogs() {
                 <Text style={dynamicStyles.adminPaymentSectionTitle({ c })}>{refund ? 'Refund information' : 'Payment information'}</Text>
                 <PaymentDetailLine c={c} icon="cash-outline" label={refund ? 'Refund amount' : 'Amount'} value={`PHP ${Number(refund ? record.refundAmount : record.amount).toFixed(2)}`} />
                 {refund ? <PaymentDetailLine c={c} icon="receipt-outline" label="Original payment" value={`PHP ${Number(record.originalPaymentAmount).toFixed(2)}`} /> : null}
-                {!refund && record.paymentType === 'Extension' ? <PaymentDetailLine c={c} icon="hourglass-outline" label="Additional time" value={`${record.additionalMinutes || 0} minutes`} /> : null}
+                {!refund && record.paymentType === 'Extension' ? <PaymentDetailLine c={c} icon="hourglass-outline" label="Additional time" value={durationLabel(record.additionalMinutes || 0)} /> : null}
                 <PaymentDetailLine c={c} icon="checkmark-circle-outline" label="Status" value={status} />
                 <PaymentDetailLine c={c} icon="cloud-upload-outline" label={refund ? 'Created' : 'Submitted'} value={dateTimeLabel(refund ? record.createdAt : record.submittedAt)} />
                 {!refund && record.processedAt ? <PaymentDetailLine c={c} icon="time-outline" label="Processed" value={dateTimeLabel(record.processedAt)} /> : null}

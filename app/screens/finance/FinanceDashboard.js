@@ -5,6 +5,7 @@ import { getPendingPayments, getPaymentReceipt, decidePayment, getRefunds, proce
 import { Layout, InfoModal, Btn, Tag, IconBox } from '../../components';
 import { staticStyles, dynamicStyles } from '../../components/finance.styles';
 import FinanceReservations from './FinanceReservations';
+import { fd, ft, durationLabel } from '../../shared/utils/date';
 
 function RefundDetailLine({ label, value }) {
   const { s, c } = useApp();
@@ -88,8 +89,8 @@ function Finance() {
       toast('Enter a reason before rejecting this refund.');
       return;
     }
-    if (action === 'complete' && !reference) {
-      toast('Enter the transaction reference before marking this refund complete.');
+    if (action === 'complete' && !/^\d{13}$/.test(reference)) {
+      toast('Enter the 13-digit GCash transaction reference before marking this refund complete.');
       return;
     }
     setBusy(`refund-${refund.id}`);
@@ -169,8 +170,8 @@ function Finance() {
             <View style={staticStyles.financeRecordHeading}><View style={staticStyles.financeRecordIdentity}><Text style={s.cardSub}>EXTENSION REVIEW</Text><Text style={s.cardTitle}>Reservation #{extension.reservationId}</Text><Text style={s.cardSub}>{extension.riderName}</Text></View><Tag kind="gold" text="Pending" /></View>
             <View style={[staticStyles.financeRecordDetails,{ borderColor:c.line }]}>
               <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Locker</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{extension.slot}</Text></View>
-              <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Reserved for</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{extension.date} · {extension.time}</Text></View>
-              <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Extra time</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{extension.additionalMinutes} minutes</Text></View>
+              <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Reserved for</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{fd(extension.date)} · {ft(extension.time)}</Text></View>
+              <View style={staticStyles.financeRecordDetailRow}><Text style={s.muted}>Extra time</Text><Text style={[staticStyles.financeRecordDetailValue,{ color:c.text }]}>{durationLabel(extension.additionalMinutes)}</Text></View>
             </View>
             <View style={[staticStyles.financeRecordAmount,{ backgroundColor:c.soft,borderColor:c.line }]}><Text style={s.muted}>Payment amount</Text><Text style={dynamicStyles.financeRecordAmount({ c, emphasis:true })}>PHP {Number(extension.paymentAmount || extension.additionalFee).toFixed(2)}</Text></View>
             {extension.paymentId ? (
@@ -218,8 +219,9 @@ function Finance() {
               <Text style={s.cardTitle}>Reservation</Text>
               <RefundDetailLine label="Rider" value={`${refundDetail.riderName} · ID ${refundDetail.riderId}`} />
               <RefundDetailLine label="Locker" value={`${refundDetail.slot} · Reservation #${refundDetail.reservationId}`} />
-              <RefundDetailLine label="Date and time" value={`${refundDetail.date} · ${refundDetail.startTime}–${refundDetail.endTime}`} />
-              <RefundDetailLine label="Duration" value={refundDetail.wholeDay ? 'Whole Day' : `${refundDetail.durationMinutes} minutes`} />
+              <RefundDetailLine label="Reservation date" value={fd(refundDetail.date)} />
+              <RefundDetailLine label="Reservation time" value={`${ft(refundDetail.startTime)} – ${ft(refundDetail.endTime)}`} />
+              <RefundDetailLine label="Duration" value={`${refundDetail.wholeDay ? 'Whole Day · ' : ''}${durationLabel(refundDetail.durationMinutes)}`} />
             </View>
             <View style={[staticStyles.financeModalSection,dynamicStyles.financeModalSection({ c })]}>
               <Text style={s.cardTitle}>Refund breakdown</Text>
@@ -239,7 +241,14 @@ function Finance() {
             ) : null}
             {refundDetail.status === 'APPROVED' ? (
               <>
-                <TextInput style={[s.input,{ marginTop:10 }]} placeholder="Transaction reference (required)" value={transactionReference} onChangeText={setTransactionReference} />
+                <TextInput
+                  style={[s.input,{ marginTop:10 }]}
+                  placeholder="13-digit GCash transaction reference"
+                  value={transactionReference}
+                  onChangeText={(value) => setTransactionReference(value.replace(/\D/g, '').slice(0, 13))}
+                  keyboardType="number-pad"
+                  maxLength={13}
+                />
                 <View style={{ marginTop:10 }}>
                   <Btn small label="Mark as Completed" onPress={() => handleRefundAction(refundDetail,'complete')} />
                 </View>

@@ -1,6 +1,7 @@
 // SHSRS API — Express + MySQL/MariaDB
-const { verifyStudentQrSubmission } = require('./studentQr');
+const { verifyIdentityQrSubmission } = require('./studentQr');
 const { createCabinetQr, parseCabinetQr, verifyCabinetQrSignature } = require('./cabinetQr');
+const { isValidGcashTransactionReference } = require('./refundReference');
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
@@ -11,6 +12,7 @@ const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
 const webpush = require('web-push');
+const nodemailer = require('nodemailer');
 const { MAX_RECEIPT_BYTES, validateReceiptImage } = require('./receiptImage');
 const { calculateSchedule, timeMinutes } = require('./reservationSchedule');
 // Load server/.env
@@ -36,6 +38,21 @@ const SERVO_UNLOCK_MS = 1500;
 const WEB_PUSH_PUBLIC_KEY = process.env.WEB_PUSH_PUBLIC_KEY || '';
 const WEB_PUSH_PRIVATE_KEY = process.env.WEB_PUSH_PRIVATE_KEY || '';
 const WEB_PUSH_SUBJECT = process.env.WEB_PUSH_SUBJECT || 'mailto:admin@shsrs.local';
+const SMTP_HOST = process.env.SMTP_HOST || '';
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_SECURE = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true';
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
+const mailTransport = SMTP_HOST && SMTP_FROM && Number.isInteger(SMTP_PORT) && SMTP_PORT > 0
+  && Boolean(SMTP_USER) === Boolean(SMTP_PASS)
+  ? nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    ...(SMTP_USER ? { auth: { user: SMTP_USER, pass: SMTP_PASS } } : {}),
+  })
+  : null;
 
 if (WEB_PUSH_PUBLIC_KEY && WEB_PUSH_PRIVATE_KEY) {
   webpush.setVapidDetails(WEB_PUSH_SUBJECT, WEB_PUSH_PUBLIC_KEY, WEB_PUSH_PRIVATE_KEY);
@@ -78,6 +95,7 @@ const okMail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const okPhone = (p) => /^\+?[0-9\s()-]{7,30}$/.test(p || '');
 const okDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
 const okTime = (t) => /^\d{2}:\d{2}$/.test(t || '');
+const resetCodeHash = (userId, code) => crypto.createHmac('sha256', SECRET).update(`${userId}:${code}`).digest('hex');
 const dt = (d, t) => { const [y, m, da] = d.split('-').map(Number); const [h, mi] = (t || '00:00').split(':').map(Number); return new Date(y, m - 1, da, h, mi); };
 const fd = (d) => { const [y, m, da] = d.split('-').map(Number); return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m - 1]} ${da}, ${y}`; };
 const ft = (t) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
@@ -90,11 +108,16 @@ const receiptUrl = (req, value) => {
 
 const auth = wrap(async (req, res, next) => {
   const h = req.headers.authorization || '';
-  let uid;
-  try { uid = jwt.verify(h.replace('Bearer ', ''), SECRET).uid; } catch (e) { return bad(res, 'Please log in again.', 401); }
-  const [[u]] = await pool.query('SELECT id, is_admin, is_finance, is_security FROM users WHERE id=?', [uid]);
+  let claims;
+  try { claims = jwt.verify(h.replace('Bearer ', ''), SECRET); } catch (e) { return bad(res, 'Please log in again.', 401); }
+  const [[u]] = await pool.query('SELECT id, is_admin, is_finance, is_security, must_change_password, session_version FROM users WHERE id=?', [claims.uid]);
   if (!u) return bad(res, 'Please log in again.', 401);
+  if (Number(claims.sv || 0) !== Number(u.session_version || 0)) return bad(res, 'Please log in again.', 401);
   req.uid = u.id; req.admin = !!u.is_admin; req.finance = !!u.is_finance; req.security = !!u.is_security;
+  req.mustChangePassword = !!u.must_change_password;
+  if (req.mustChangePassword && !(req.method === 'PUT' && req.path === '/api/me/password')) {
+    return bad(res, 'Choose a new password before continuing.', 403);
+  }
   next();
 });
 const deviceAuth = (req, res, next) => {
@@ -120,7 +143,7 @@ const financeOnly = (req, res, next) => (req.finance && !req.admin && !req.secur
 const financeOrAdmin = (req, res, next) => ((req.finance && !req.admin && !req.security) || (req.admin && !req.finance && !req.security) ? next() : bad(res, 'Finance or Admin access only.', 403));
 const riderOrAdmin = (req, res, next) => (!req.finance && !req.security ? next() : bad(res, 'This feature is not available to your account role.', 403));
 const scannerAccess = (req, res, next) => (req.admin || req.security ? next() : bad(res, 'Security or Admin access only.', 403));
-const token = (uid) => jwt.sign({ uid }, SECRET, { expiresIn: '30d' });
+const token = (uid, sessionVersion = 0) => jwt.sign({ uid, sv: sessionVersion }, SECRET, { expiresIn: '30d' });
 
 const hashPushToken = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 
@@ -350,40 +373,40 @@ app.get('/api/health', wrap(async (req, res) => {
 /* ---------- auth ---------- */
 app.post('/api/register', wrap(async (req, res) => {
   const body = req.body && typeof req.body === 'object' ? req.body : {};
-  const parsed = verifyStudentQrSubmission(body);
+  const parsed = verifyIdentityQrSubmission(body);
   if (parsed.error) {
     const errors = {
-      invalid: 'Invalid or unsupported student ID QR code.',
-      studentId: 'The QR code must contain a 10-digit student ID.',
-      name: 'The QR code is missing the student name.',
-      course: 'The QR code is missing the course or program.',
-      mismatch: 'Student details do not match the scanned QR code.',
+      invalid: 'Invalid or unsupported USTP ID QR code.',
+      memberId: 'The QR code must contain a 10-digit student ID or 7-digit faculty ID.',
+      name: 'The QR code is missing the cardholder name.',
+      affiliation: 'The QR code is missing the course/program or faculty position/address.',
+      mismatch: 'The submitted identity details do not match the scanned QR code.',
     };
     return bad(res, errors[parsed.error]);
   }
-  const { name, studentId, course } = parsed.student;
+  const { name, memberId, memberType, affiliation } = parsed.identity;
   const email = String(body.email || '').trim().toLowerCase(), pw = String(body.password || '');
   if (!name) return bad(res, 'Please enter your name.');
   if (!okMail(email)) return bad(res, 'Please enter a valid email address.');
   if (pw.length < 8) return bad(res, 'Password must be at least 8 characters.');
   const phone = String(body.phone || '').trim();
   if (!okPhone(phone)) return bad(res, 'Please enter a valid phone number.');
-  const [[existingStudent]] = await pool.query('SELECT id FROM users WHERE student_id=?', [studentId]);
-  if (existingStudent) return bad(res, 'This student ID is already registered.', 409);
+  const [[existingMember]] = await pool.query('SELECT id FROM users WHERE student_id=?', [memberId]);
+  if (existingMember) return bad(res, 'This USTP ID is already registered.', 409);
   const [[existingEmail]] = await pool.query('SELECT id FROM users WHERE email=?', [email]);
   if (existingEmail) return bad(res, 'That email is already registered.', 409);
   let r;
   try {
     [r] = await pool.query(
-      'INSERT INTO users (name,email,password_hash,phone,student_id,course,is_admin) VALUES (?,?,?,?,?,?,0)',
-      [name, email, await bcrypt.hash(pw, 10), phone, studentId, course],
+      'INSERT INTO users (name,email,password_hash,phone,student_id,member_type,course,is_admin) VALUES (?,?,?,?,?,?,?,0)',
+      [name, email, await bcrypt.hash(pw, 10), phone, memberId, memberType, affiliation],
     );
   } catch (e) {
     if (e.code !== 'ER_DUP_ENTRY') throw e;
     const [[duplicateEmail]] = await pool.query('SELECT id FROM users WHERE email=?', [email]);
     if (duplicateEmail) return bad(res, 'That email is already registered.', 409);
-    const [[duplicateStudent]] = await pool.query('SELECT id FROM users WHERE student_id=?', [studentId]);
-    if (duplicateStudent) return bad(res, 'This student ID is already registered.', 409);
+    const [[duplicateMember]] = await pool.query('SELECT id FROM users WHERE student_id=?', [memberId]);
+    if (duplicateMember) return bad(res, 'This USTP ID is already registered.', 409);
     throw e;
   }
   res.json({ token: token(r.insertId) });
@@ -391,9 +414,153 @@ app.post('/api/register', wrap(async (req, res) => {
 
 app.post('/api/login', wrap(async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
-  const [[u]] = await pool.query('SELECT id, password_hash FROM users WHERE email=?', [email]);
+  const [[u]] = await pool.query('SELECT id, password_hash, must_change_password, session_version FROM users WHERE email=?', [email]);
   if (!u || !(await bcrypt.compare(String(req.body.password || ''), u.password_hash))) return bad(res, 'Incorrect email or password.', 401);
-  res.json({ token: token(u.id) });
+  res.json({ token: token(u.id, Number(u.session_version || 0)), mustChangePassword: !!u.must_change_password });
+}));
+
+app.post('/api/password-reset-requests', wrap(async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!okMail(email) || email.length > 150) return bad(res, 'Enter a valid email address.');
+  if (!mailTransport) return bad(res, 'Email verification is not configured. Please contact an administrator.', 503);
+
+  const [[user]] = await pool.query(
+    'SELECT id,email FROM users WHERE email=? AND is_admin=0 AND is_finance=0 AND is_security=0',
+    [email],
+  );
+  const genericResponse = { message: 'If a rider account uses that email, a verification code has been sent.' };
+  if (!user) return res.json(genericResponse);
+
+  const connection = await pool.getConnection();
+  let resetId;
+  let code;
+  try {
+    await connection.beginTransaction();
+    const [[lockedUser]] = await connection.query(
+      'SELECT id,email FROM users WHERE id=? AND is_admin=0 AND is_finance=0 AND is_security=0 FOR UPDATE',
+      [user.id],
+    );
+    if (!lockedUser) {
+      await connection.rollback();
+      return res.json(genericResponse);
+    }
+
+    const [[recentRequests]] = await connection.query(
+      'SELECT COUNT(*) AS count FROM password_reset_requests WHERE user_id=? AND created_at>=DATE_SUB(NOW(), INTERVAL 1 HOUR)',
+      [user.id],
+    );
+    if (Number(recentRequests.count) >= 3) {
+      await connection.rollback();
+      return res.json(genericResponse);
+    }
+
+    await connection.query(
+      "UPDATE password_reset_requests SET status='Expired' WHERE user_id=? AND status='Pending'",
+      [user.id],
+    );
+    code = String(crypto.randomInt(100000, 1000000));
+    const [insert] = await connection.query(
+      "INSERT INTO password_reset_requests (user_id,token_hash,status,expires_at,attempt_count) VALUES (?,?,'Pending',DATE_ADD(NOW(),INTERVAL 15 MINUTE),0)",
+      [user.id, resetCodeHash(user.id, code)],
+    );
+    resetId = insert.insertId;
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  try {
+    await mailTransport.sendMail({
+      from: SMTP_FROM,
+      to: user.email,
+      subject: 'HelMate password reset code',
+      text: `Your HelMate password reset code is ${code}. It expires in 15 minutes. If you did not request this, you can ignore this email.`,
+    });
+  } catch (error) {
+    await pool.query(
+      "UPDATE password_reset_requests SET status='Expired' WHERE id=? AND status='Pending'",
+      [resetId],
+    );
+    console.error('[password-reset] Email delivery failed', {
+      code: error.code,
+      responseCode: error.responseCode,
+    });
+    return bad(res, 'Unable to send a verification email right now. Please try again later.', 503);
+  }
+  res.json(genericResponse);
+}));
+
+app.put('/api/password-reset-requests/password', wrap(async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const code = String(req.body.code || '').trim();
+  const nextPassword = String(req.body.next || '');
+  if (!okMail(email) || email.length > 150) return bad(res, 'Enter a valid email address.');
+  if (!/^\d{6}$/.test(code)) return bad(res, 'Enter the 6-digit verification code.');
+  if (nextPassword.length < 8) return bad(res, 'New password must be at least 8 characters.');
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[user]] = await connection.query(
+      'SELECT id FROM users WHERE email=? AND is_admin=0 AND is_finance=0 AND is_security=0 FOR UPDATE',
+      [email],
+    );
+    if (!user) {
+      await connection.rollback();
+      return bad(res, 'The verification code is incorrect or expired.', 400);
+    }
+
+    const [[resetRequest]] = await connection.query(
+      "SELECT id,token_hash,attempt_count,expires_at<=NOW() AS expired FROM password_reset_requests WHERE user_id=? AND status='Pending' ORDER BY id DESC LIMIT 1 FOR UPDATE",
+      [user.id],
+    );
+    if (!resetRequest || resetRequest.expired) {
+      if (resetRequest) {
+        await connection.query("UPDATE password_reset_requests SET status='Expired' WHERE id=?", [resetRequest.id]);
+        await connection.commit();
+      } else {
+        await connection.rollback();
+      }
+      return bad(res, 'The verification code is incorrect or expired.', 400);
+    }
+
+    const expectedHash = Buffer.from(resetCodeHash(user.id, code), 'hex');
+    const storedHash = Buffer.from(resetRequest.token_hash, 'hex');
+    const validCode = storedHash.length === expectedHash.length && crypto.timingSafeEqual(storedHash, expectedHash);
+    if (!validCode) {
+      const attempts = Number(resetRequest.attempt_count) + 1;
+      await connection.query(
+        "UPDATE password_reset_requests SET attempt_count=?,status=IF(? >= 5,'Expired','Pending') WHERE id=?",
+        [attempts, attempts, resetRequest.id],
+      );
+      await connection.commit();
+      return bad(res, 'The verification code is incorrect or expired.', 400);
+    }
+
+    const passwordHash = await bcrypt.hash(nextPassword, 10);
+    await connection.query(
+      'UPDATE users SET password_hash=?,must_change_password=0,session_version=session_version+1 WHERE id=?',
+      [passwordHash, user.id],
+    );
+    await connection.query(
+      "UPDATE password_reset_requests SET status='Completed',completed_at=NOW() WHERE id=?",
+      [resetRequest.id],
+    );
+    await connection.query(
+      "UPDATE password_reset_requests SET status='Expired' WHERE user_id=? AND status='Pending'",
+      [user.id],
+    );
+    await connection.commit();
+    res.json({ ok: true });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }));
 
 /* ---------- everything the app needs in one call ---------- */
@@ -418,9 +585,10 @@ app.get('/api/data', auth, wrap(async (req, res) => {
       log: log.map((entry) => ({ ...entry, ts: Number(entry.ts) })), payments: [],
     });
   }
-  const [users] = await pool.query('SELECT id, name, email, photo, phone, is_admin, is_finance, is_security FROM users ORDER BY id');
+  const [users] = await pool.query('SELECT id, name, email, photo, phone, member_type, is_admin, is_finance, is_security FROM users ORDER BY id');
   const list = users.filter((u) => req.admin || u.id === req.uid).map((u) => ({
     id: u.id, name: u.name, email: u.email, admin: !!u.is_admin, finance: !!u.is_finance, security: !!u.is_security,
+    memberType: u.member_type || 'Student',
     photo: u.id === req.uid ? u.photo || '' : '', phone: u.id === req.uid ? u.phone || '' : '',
   }));
   const [res1] = req.admin
@@ -834,7 +1002,10 @@ app.post('/api/finance/refunds/:id/:action', auth, financeOnly, wrap(async (req,
     } else if (action === 'complete') {
       if (refund.status !== 'APPROVED') { await connection.rollback(); return bad(res, 'Refund must be approved before completion.', 409); }
       const reference = String(req.body.transactionReference || '').trim();
-      if (!reference) { await connection.rollback(); return bad(res, 'A transaction reference is required.', 400); }
+      if (!isValidGcashTransactionReference(reference)) {
+        await connection.rollback();
+        return bad(res, 'The GCash transaction reference must be exactly 13 digits.', 400);
+      }
       status = 'COMPLETED';
       sql = 'UPDATE refunds SET status=?,finance_approver_id=?,completion_timestamp=CURRENT_TIMESTAMP,transaction_reference=? WHERE id=?';
       params = [status,req.uid,reference,id];
@@ -1465,8 +1636,10 @@ app.put('/api/me/photo', auth, riderOrAdmin, wrap(async (req, res) => {
 app.put('/api/me/password', auth, riderOrAdmin, wrap(async (req, res) => {
   const [[u]] = await pool.query('SELECT password_hash FROM users WHERE id=?', [req.uid]);
   if (!(await bcrypt.compare(String(req.body.current || ''), u.password_hash))) return bad(res, 'Current password is incorrect.');
-  if (String(req.body.next || '').length < 8) return bad(res, 'New password must be at least 8 characters.');
-  await pool.query('UPDATE users SET password_hash=? WHERE id=?', [await bcrypt.hash(String(req.body.next), 10), req.uid]);
+  const nextPassword = String(req.body.next || '');
+  if (nextPassword.length < 8) return bad(res, 'New password must be at least 8 characters.');
+  if (nextPassword === String(req.body.current || '')) return bad(res, 'Choose a different new password.');
+  await pool.query('UPDATE users SET password_hash=?,must_change_password=0 WHERE id=?', [await bcrypt.hash(nextPassword, 10), req.uid]);
   res.json({ ok: true });
 }));
 

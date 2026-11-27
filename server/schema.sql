@@ -7,15 +7,36 @@ CREATE TABLE IF NOT EXISTS users (
   name          VARCHAR(100) NOT NULL,
   email         VARCHAR(150) NOT NULL UNIQUE,
   password_hash VARCHAR(100) NOT NULL,
+  must_change_password TINYINT(1) NOT NULL DEFAULT 0,
+  session_version INT UNSIGNED NOT NULL DEFAULT 0,
   photo         MEDIUMTEXT NULL,
   phone         VARCHAR(30) NULL,
   student_id    CHAR(10) NULL,
+  member_type   ENUM('Student','Faculty') NOT NULL DEFAULT 'Student',
   course        VARCHAR(100) NULL,
   is_admin      TINYINT(1) NOT NULL DEFAULT 0,
   is_finance    TINYINT(1) NOT NULL DEFAULT 0,
   is_security   TINYINT(1) NOT NULL DEFAULT 0,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_users_student_id (student_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS password_reset_requests (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  status ENUM('Pending','Approved','Rejected','Completed','Expired') NOT NULL DEFAULT 'Pending',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,
+  attempt_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  approved_by INT NULL,
+  approved_at DATETIME NULL,
+  completed_at DATETIME NULL,
+  UNIQUE KEY uq_password_reset_token_hash (token_hash),
+  KEY ix_password_reset_status_expiry (status, expires_at),
+  KEY ix_password_reset_user_status (user_id, status),
+  CONSTRAINT fk_password_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_password_reset_approver FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS slots (
